@@ -1,5 +1,5 @@
-// src/api/mod.rs
-
-// Declare the `balance` module. This tells Rust that `balance.rs` exists
-// and should be compiled as part of this module.
+// Declare all our API modules.
 pub mod balance;
+pub mod fees;
+pub mod history;
+pub mod wallet;
