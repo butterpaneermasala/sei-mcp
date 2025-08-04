@@ -1,0 +1,51 @@
+[package]
+name = "sei-mcp-server-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# Axum is our web framework for building the API endpoints.
+# Latest version: 0.8.4
+axum = "0.8.4" 
+
+# Tokio is the asynchronous runtime that Axum runs on.
+# We enable the "full" feature to get everything we need,
+# including the TCP listener and I/O.
+# Latest version: 1.47.1
+tokio = { version = "1.47.1", features = ["full"] }
+
+# Serde is the standard library for serialization and deserialization in Rust.
+# We'll use this to handle JSON data for our API.
+# Latest version: 1.0.219
+serde = { version = "1.0.219", features = ["derive"] }
+
+# serde_json is a crate for working with JSON data, built on top of Serde.
+# Latest version: 1.0.141
+serde_json = "1.0.141"
+
+# `dotenvy` helps us manage environment variables from a .env file,
+# which is crucial for handling things like API keys and blockchain endpoints.
+# Latest version: 0.15.7
+dotenvy = "0.15.7"
+
+# `cosmrs` is a core library for interacting with Cosmos SDK chains like Sei.
+# We'll use this later to build and sign transactions.
+# Latest version: 0.22.0
+cosmrs = "0.22.0"
+
+# reqwest is an ergonomic and powerful HTTP client for making RPC calls.
+# We enable the "json" feature for easy JSON serialization/deserialization.
+# Latest version: 0.12.22
+reqwest = { version = "0.12.22", features = ["json"] }
+
+# anyhow is a simple, no-boilerplate error handling library.
+# Latest version: 1.0.98
+anyhow = "1.0.98"
+
+# tracing provides a structured, event-based logging framework.
+# Latest version: 0.1.41
+tracing = "0.1.41"
+
+# tracing-subscriber helps configure how tracing events are collected and formatted.
+# Latest version: 0.3.19
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt"] }
