@@ -48,6 +48,13 @@ pub struct BalanceResponse {
 
 // --- Transaction History Models ---
 
+/// Enum to distinguish between native and token transfers.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum TransactionType {
+    Native,
+    ERC20,
+}
+
 /// Defines the structure for a single transaction (our internal representation).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Transaction {
@@ -55,8 +62,11 @@ pub struct Transaction {
     pub from_address: String,
     pub to_address: String,
     pub amount: String,
-    pub denom: String,
+    pub denom: String, // 'usei' for native, token symbol for ERC20
     pub timestamp: String,
+    pub transaction_type: TransactionType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contract_address: Option<String>,
 }
 
 /// Defines the structure for the transaction history response.

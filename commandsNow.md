@@ -1,0 +1,1 @@
+curl http://localhost:3000/balance/0x201aa28d9313108Bc62C52Df9202fe46b607DF8B
