@@ -4,13 +4,13 @@ use crate::blockchain::models::{
     BalanceResponse, EstimateFeesRequest, EstimateFeesResponse, ImportWalletError,
     TransactionHistoryResponse, WalletGenerationError, WalletResponse,
 };
+use crate::blockchain::services::balance as balance_service;
+use crate::blockchain::services::fees as fees_service;
+use crate::blockchain::services::history as history_service;
+use crate::blockchain::services::wallet as wallet_service;
 use anyhow::{Result, anyhow};
 use reqwest::Client;
 use std::collections::HashMap;
-use crate::blockchain::services::balance as balance_service;
-use crate::blockchain::services::wallet as wallet_service;
-use crate::blockchain::services::history as history_service;
-use crate::blockchain::services::fees as fees_service;
 
 // --- SeiClient Implementation ---
 
@@ -60,10 +60,16 @@ impl SeiClient {
         &self,
         chain_id: &str,
         address: &str,
-        block_scan_range: u64, // <-- New parameter here
+        limit: u64,
     ) -> Result<TransactionHistoryResponse> {
-        let rpc_url = self.get_rpc_url(chain_id)?;
-        history_service::get_transaction_history(&self.client, rpc_url, address, block_scan_range).await // <-- Pass the new parameter
+        // This implementation is now specific to the 'sei' chain
+        if chain_id != "sei" {
+            return Err(anyhow!(
+                "Transaction history via Seistream API is only supported for the 'sei' chain."
+            ));
+        }
+        // The rpc_url is no longer needed for the new history service
+        history_service::get_transaction_history(&self.client, address, limit).await
     }
 
     /// Estimates the gas fees for a given transaction.

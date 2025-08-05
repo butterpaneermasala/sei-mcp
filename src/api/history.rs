@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{Path, State, Query},
+    extract::{Path, Query, State},
 };
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
@@ -20,7 +20,7 @@ pub struct HistoryPath {
 /// We use Option<u64> to make the parameter optional.
 #[derive(Debug, Deserialize)]
 pub struct HistoryQuery {
-    pub range: Option<u64>,
+    pub limit: Option<u64>,
 }
 
 /// Defines the structure for the JSON output of the transaction history API.
@@ -50,10 +50,9 @@ pub async fn get_transaction_history_handler(
     let client = SeiClient::new(&config.chain_rpc_urls);
 
     // Use the provided range or a default value (e.g., 2000 blocks).
-    let block_scan_range = query.range.unwrap_or(2000);
-
+    let limit = query.limit.unwrap_or(20); // Default to 20 transactions
     match client
-        .get_transaction_history(&path.chain_id, &path.address, block_scan_range) // <-- Pass the new parameter
+        .get_transaction_history(&path.chain_id, &path.address, limit)
         .await
     {
         Ok(history_response) => {
