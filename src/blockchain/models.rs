@@ -1,7 +1,8 @@
+// src/blockchain/models.rs
 use serde::{Deserialize, Serialize};
-
-// Error types for wallet operations
 use thiserror::Error;
+
+// --- Error types for wallet operations ---
 
 #[derive(Error, Debug)]
 pub enum WalletGenerationError {
@@ -47,7 +48,7 @@ pub struct BalanceResponse {
 
 // --- Transaction History Models ---
 
-/// Defines the structure for a single transaction.
+/// Defines the structure for a single transaction (our internal representation).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Transaction {
     pub tx_hash: String,
