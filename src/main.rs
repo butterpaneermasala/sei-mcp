@@ -3,6 +3,7 @@ use axum::{
     Router,
     routing::{get, post},
 };
+use std::env;
 use std::net::SocketAddr;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -10,6 +11,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 mod api;
 mod blockchain;
 mod config;
+mod mcp;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -24,26 +26,40 @@ async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
     let app_config = config::AppConfig::from_env()?;
 
-    let app = Router::new()
-        .route(
-            "/balance/:chain_id/:address",
-            get(api::balance::get_balance_handler),
-        )
-        .route("/wallet/create", post(api::wallet::create_wallet_handler))
-        .route("/wallet/import", post(api::wallet::import_wallet_handler))
-        .route(
-            "/history/:chain_id/:address",
-            get(api::history::get_transaction_history_handler),
-        )
-        .route("/fees/estimate", post(api::fees::estimate_fees_handler))
-        .route("/health", get(api::health::health_handler))
-        .with_state(app_config.clone());
+    // Check if we should run as MCP server or HTTP server
+    let args: Vec<String> = env::args().collect();
+    let is_mcp_mode = args.len() > 1 && args[1] == "--mcp";
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], app_config.port));
+    if is_mcp_mode {
+        // Run as MCP server
+        tracing::info!("Starting as MCP server...");
+        let mcp_server = mcp::McpServer::new(app_config);
+        mcp_server.run().await?;
+    } else {
+        // Run as HTTP server (original behavior)
+        tracing::info!("Starting as HTTP server...");
+        
+        let app = Router::new()
+            .route(
+                "/balance/:chain_id/:address",
+                get(api::balance::get_balance_handler),
+            )
+            .route("/wallet/create", post(api::wallet::create_wallet_handler))
+            .route("/wallet/import", post(api::wallet::import_wallet_handler))
+            .route(
+                "/history/:chain_id/:address",
+                get(api::history::get_transaction_history_handler),
+            )
+            .route("/fees/estimate", post(api::fees::estimate_fees_handler))
+            .route("/health", get(api::health::health_handler))
+            .with_state(app_config.clone());
 
-    tracing::info!("Server listening on {}", addr);
+        let addr = SocketAddr::from(([0, 0, 0, 0], app_config.port));
 
-    axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+        tracing::info!("HTTP Server listening on {}", addr);
+
+        axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+    }
 
     Ok(())
 }

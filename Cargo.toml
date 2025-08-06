@@ -1,13 +1,11 @@
 [package]
 name = "sei-mcp-server-rs"
 version = "0.1.0"
-edition = "2024"
-
+edition = "2021"
 
 [dependencies]
-
+# Existing dependencies
 reqwest = { version = "0.12", features = ["json"] }
-
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
@@ -24,3 +22,6 @@ thiserror = "1.0"
 rand = "0.8"
 chrono = { version = "0.4.41", features = ["serde"] }
 futures = "0.3"
+
+# Simple MCP dependencies  
+uuid = { version = "1.0", features = ["v4"] }
