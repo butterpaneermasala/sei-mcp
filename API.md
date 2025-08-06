@@ -18,8 +18,9 @@
     ```
 
 ## Get Transaction History
-- **GET /history/{chain_id}/{address}?range=2000**
-  - Returns recent transactions for the address. Optional `range` query param (default: 2000 blocks).
+- **GET /history/{chain_id}/{address}?limit=20**
+  - Returns recent transactions for the address. Only the `sei` chain is supported. Data is fetched from the public Seistream indexer (not the node RPC).
+  - Optional `limit` query param (default: 20 transactions, max: 100).
   - **Response:**
     ```json
     {

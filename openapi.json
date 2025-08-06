@@ -59,11 +59,12 @@
     },
     "/history/{chain_id}/{address}": {
       "get": {
-        "summary": "Get Transaction History",
+        "summary": "Get Transaction History (Sei only, via Seistream indexer)",
+        "description": "Returns recent transactions for the address. Only the 'sei' chain is supported. Data is fetched from the public Seistream indexer (not the node RPC).",
         "parameters": [
-          { "name": "chain_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "chain_id", "in": "path", "required": true, "schema": { "type": "string", "enum": ["sei"] } },
           { "name": "address", "in": "path", "required": true, "schema": { "type": "string" } },
-          { "name": "range", "in": "query", "required": false, "schema": { "type": "integer", "default": 2000 } }
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "default": 20, "maximum": 100 } }
         ],
         "responses": {
           "200": {
@@ -181,9 +182,10 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "gas": { "type": "string" },
+                    "estimated_gas": { "type": "string" },
                     "gas_price": { "type": "string" },
-                    "fee": { "type": "string" }
+                    "total_fee": { "type": "string" },
+                    "denom": { "type": "string" }
                   }
                 }
               }
