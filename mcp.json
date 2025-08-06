@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "OpenAPI Schema": {
+      "command": "npx",
+      "args": ["-y", "mcp-openapi-schema", "/home/satya/hackathons/seii/sei-mcp-server-rs/openapi.json"]
+    }
+  }
+}

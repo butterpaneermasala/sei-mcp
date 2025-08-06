@@ -1,0 +1,196 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Sei MCP Server API",
+    "version": "1.0.0",
+    "description": "MCP server for interacting with Sei blockchain: balance, history, wallet, and fee estimation endpoints.",
+    "contact": {
+      "name": "butterpaneermasala"
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health Check",
+        "description": "Returns {\"status\": \"ok\"} if the server is running.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/balance/{chain_id}/{address}": {
+      "get": {
+        "summary": "Get Balance",
+        "parameters": [
+          { "name": "chain_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "address", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Balance response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "chain_id": { "type": "string" },
+                    "address": { "type": "string" },
+                    "balance": { "type": "string" },
+                    "denom": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/history/{chain_id}/{address}": {
+      "get": {
+        "summary": "Get Transaction History",
+        "parameters": [
+          { "name": "chain_id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "address", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "range", "in": "query", "required": false, "schema": { "type": "integer", "default": 2000 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Transaction history response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "address": { "type": "string" },
+                    "transactions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "tx_hash": { "type": "string" },
+                          "from_address": { "type": "string" },
+                          "to_address": { "type": "string" },
+                          "amount": { "type": "string" },
+                          "denom": { "type": "string" },
+                          "timestamp": { "type": "string", "format": "date-time" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wallet/create": {
+      "post": {
+        "summary": "Create Wallet",
+        "responses": {
+          "200": {
+            "description": "Wallet creation response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "address": { "type": "string" },
+                    "private_key": { "type": "string" },
+                    "mnemonic": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/wallet/import": {
+      "post": {
+        "summary": "Import Wallet",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "mnemonic_or_private_key": { "type": "string" }
+                },
+                "required": ["mnemonic_or_private_key"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Wallet import response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "address": { "type": "string" },
+                    "private_key": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/fees/estimate": {
+      "post": {
+        "summary": "Estimate Fees",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "chain_id": { "type": "string" },
+                  "from": { "type": "string" },
+                  "to": { "type": "string" },
+                  "amount": { "type": "string" }
+                },
+                "required": ["chain_id", "from", "to", "amount"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fee estimation response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "gas": { "type": "string" },
+                    "gas_price": { "type": "string" },
+                    "fee": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

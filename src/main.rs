@@ -36,6 +36,7 @@ async fn main() -> Result<()> {
             get(api::history::get_transaction_history_handler),
         )
         .route("/fees/estimate", post(api::fees::estimate_fees_handler))
+        .route("/health", get(api::health::health_handler))
         .with_state(app_config.clone());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], app_config.port));
