@@ -166,20 +166,35 @@ RUST_LOG=debug cargo run -- --mcp
 
 ```
 src/
-├── main.rs              # Entry point, supports both HTTP and MCP modes
+├── main.rs              # Entry point with HTTP server configuration (CORS, rate limiting)
 ├── mcp.rs               # MCP server implementation
-├── config.rs            # Configuration management
-├── api/                 # HTTP API handlers
-│   ├── balance.rs
-│   ├── wallet.rs
-│   ├── history.rs
-│   ├── fees.rs
-│   └── health.rs
-└── blockchain/          # Blockchain client and services
-    ├── client.rs
-    ├── models.rs
-    └── services/
+├── config.rs            # Configuration and environment management
+├── api/                 # HTTP API handlers with input validation
+│   ├── balance.rs       # Balance query endpoints
+│   ├── wallet.rs        # Wallet management endpoints
+│   ├── history.rs       # Transaction history endpoints
+│   ├── fees.rs          # Fee estimation endpoints
+│   └── health.rs        # Health check endpoint
+└── blockchain/          # Blockchain interaction layer
+    ├── client.rs        # HTTP client with timeouts and retries
+    ├── models.rs        # Data structures and validation
+    └── services/        # Blockchain service implementations
+        ├── balance.rs   # Balance query service
+        ├── fees.rs      # Fee estimation service
+        ├── history.rs   # Transaction history service
+        ├── wallet.rs    # Wallet management service
+        └── transactions.rs # Transaction operations
 ```
+
+## Security Features
+
+- Rate limiting: 2 requests per second with burst allowance of 5
+- Request timeouts: 30 seconds for blockchain RPC calls
+- CORS: Configurable allowed origins
+- Compression: Response compression enabled
+- Input validation: Request payload validation
+- Logging: Structured logging with configurable levels
+- Environment separation: .env.example provided for configuration
 
 ## Contributing
 

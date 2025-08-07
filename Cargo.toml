@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Existing dependencies
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.11", features = ["json"] }
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
@@ -25,3 +25,8 @@ futures = "0.3"
 
 # Simple MCP dependencies  
 uuid = { version = "1.0", features = ["v4"] }
+actix-web = "4.11.0"
+tracing-actix-web = "0.7.19"
+ethers-signers = "2.0.14"
+actix-cors = "0.7"
+actix-governor = "0.5"

@@ -1,4 +1,7 @@
-use axum::{Json, extract::State};
+use axum::{
+    extract::{Path, State},
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
@@ -11,7 +14,6 @@ use crate::{
 /// Defines the structure for the JSON input when estimating fees.
 #[derive(Debug, Deserialize)]
 pub struct EstimateFeesInput {
-    pub chain_id: String,
     pub from: String,
     pub to: String,
     pub amount: String,
@@ -31,12 +33,13 @@ pub struct EstimateFeesOutput {
 /// Handler for the POST /fees/estimate endpoint.
 /// This function estimates the gas fees for a potential transaction.
 pub async fn estimate_fees_handler(
+    Path(chain_id): Path<String>,
     State(config): State<AppConfig>,
     Json(payload): Json<EstimateFeesInput>,
 ) -> Result<Json<EstimateFeesOutput>, (axum::http::StatusCode, String)> {
     info!(
         "Received request to estimate fees for a transaction on chain '{}'",
-        payload.chain_id
+        chain_id
     );
 
     let client = SeiClient::new(&config.chain_rpc_urls);
@@ -49,7 +52,7 @@ pub async fn estimate_fees_handler(
     };
 
     match client
-        .estimate_fees(&payload.chain_id, &estimate_fees_request)
+        .estimate_fees(&chain_id, &estimate_fees_request)
         .await
     {
         Ok(fees_response) => {

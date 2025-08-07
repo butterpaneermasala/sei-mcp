@@ -2,13 +2,15 @@
 
 use crate::blockchain::models::{
     BalanceResponse, EstimateFeesRequest, EstimateFeesResponse, ImportWalletError,
-    TransactionHistoryResponse, WalletGenerationError, WalletResponse,
+    SeiTransferRequest, TransactionHistoryResponse, TransactionResponse, WalletGenerationError,
+    WalletResponse,
 };
 use crate::blockchain::services::balance as balance_service;
 use crate::blockchain::services::fees as fees_service;
 use crate::blockchain::services::history as history_service;
+use crate::blockchain::services::transactions;
 use crate::blockchain::services::wallet as wallet_service;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use reqwest::Client;
 use std::collections::HashMap;
 
@@ -80,5 +82,15 @@ impl SeiClient {
     ) -> Result<EstimateFeesResponse> {
         let rpc_url = self.get_rpc_url(chain_id)?;
         fees_service::estimate_fees(&self.client, rpc_url, request).await
+    }
+
+    /// Transfer SEI tokens to a specified address.
+    pub async fn transfer_sei(
+        &self,
+        chain_id: &str,
+        request: &SeiTransferRequest,
+    ) -> Result<TransactionResponse> {
+        let rpc_url = self.get_rpc_url(chain_id)?;
+        transactions::transfer_sei(&self.client, rpc_url, request, &request.private_key).await
     }
 }

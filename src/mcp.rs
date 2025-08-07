@@ -1,9 +1,9 @@
 // src/mcp.rs
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tracing::{info, error, debug};
+use tracing::{debug, error, info};
 
 use crate::blockchain::client::SeiClient;
 use crate::config::AppConfig;
@@ -116,7 +116,7 @@ impl McpServer {
 
     pub async fn run(&self) -> Result<()> {
         info!("Starting MCP server...");
-        
+
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
         let mut reader = BufReader::new(stdin);
@@ -223,7 +223,9 @@ impl McpServer {
         let tools = vec![
             Tool {
                 name: "get_balance".to_string(),
-                description: Some("Get the balance of an address on a specific blockchain".to_string()),
+                description: Some(
+                    "Get the balance of an address on a specific blockchain".to_string(),
+                ),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -250,7 +252,9 @@ impl McpServer {
             },
             Tool {
                 name: "import_wallet".to_string(),
-                description: Some("Import a wallet from mnemonic phrase or private key".to_string()),
+                description: Some(
+                    "Import a wallet from mnemonic phrase or private key".to_string(),
+                ),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -264,7 +268,9 @@ impl McpServer {
             },
             Tool {
                 name: "get_transaction_history".to_string(),
-                description: Some("Get transaction history for an address (Sei chain only)".to_string()),
+                description: Some(
+                    "Get transaction history for an address (Sei chain only)".to_string(),
+                ),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -310,6 +316,32 @@ impl McpServer {
                         }
                     },
                     "required": ["chain_id", "from", "to", "amount"]
+                }),
+            },
+            Tool {
+                name: "transfer_sei".to_string(),
+                description: Some("Send SEI tokens to specified address".to_string()),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "chain_id": {
+                            "type": "string",
+                            "description": "The blockchain chain ID"
+                        },
+                        "to_address": {
+                            "type": "string",
+                            "description": "The recipient address"
+                        },
+                        "amount": {
+                            "type": "string",
+                            "description": "The amount of SEI tokens to send"
+                        },
+                        "private_key": {
+                            "type": "string",
+                            "description": "The sender's private key"
+                        }
+                    },
+                    "required": ["chain_id", "to_address", "amount", "private_key"]
                 }),
             },
         ];
@@ -364,6 +396,7 @@ impl McpServer {
             "import_wallet" => self.call_import_wallet(params.arguments).await,
             "get_transaction_history" => self.call_get_transaction_history(params.arguments).await,
             "estimate_fees" => self.call_estimate_fees(params.arguments).await,
+            "transfer_sei" => self.call_transfer_sei(params.arguments).await,
             tool_name => {
                 error!("Unknown tool: {}", tool_name);
                 return JsonRpcResponse {
@@ -383,10 +416,13 @@ impl McpServer {
             Ok(content) => JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id: request.id,
-                result: Some(serde_json::to_value(CallToolResult {
-                    content,
-                    is_error: Some(false),
-                }).unwrap()),
+                result: Some(
+                    serde_json::to_value(CallToolResult {
+                        content,
+                        is_error: Some(false),
+                    })
+                    .unwrap(),
+                ),
                 error: None,
             },
             Err(e) => {
@@ -394,12 +430,15 @@ impl McpServer {
                 JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
                     id: request.id,
-                    result: Some(serde_json::to_value(CallToolResult {
-                        content: vec![Content::Text {
-                            text: format!("Error: {}", e),
-                        }],
-                        is_error: Some(true),
-                    }).unwrap()),
+                    result: Some(
+                        serde_json::to_value(CallToolResult {
+                            content: vec![Content::Text {
+                                text: format!("Error: {}", e),
+                            }],
+                            is_error: Some(true),
+                        })
+                        .unwrap(),
+                    ),
                     error: None,
                 }
             }
@@ -411,11 +450,13 @@ impl McpServer {
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
 
-        let chain_id = args.get("chain_id")
+        let chain_id = args
+            .get("chain_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
 
-        let address = args.get("address")
+        let address = args
+            .get("address")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing address parameter"))?;
 
@@ -443,7 +484,8 @@ impl McpServer {
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
 
-        let mnemonic_or_key = args.get("mnemonic_or_private_key")
+        let mnemonic_or_key = args
+            .get("mnemonic_or_private_key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing mnemonic_or_private_key parameter"))?;
 
@@ -461,19 +503,23 @@ impl McpServer {
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
 
-        let chain_id = args.get("chain_id")
+        let chain_id = args
+            .get("chain_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
 
-        let address = args.get("address")
+        let address = args
+            .get("address")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing address parameter"))?;
 
-        let limit = args.get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(20);
+        let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20);
 
-        match self.client.get_transaction_history(chain_id, address, limit).await {
+        match self
+            .client
+            .get_transaction_history(chain_id, address, limit)
+            .await
+        {
             Ok(history) => {
                 let response = serde_json::to_string_pretty(&history)?;
                 Ok(vec![Content::Text { text: response }])
@@ -487,19 +533,23 @@ impl McpServer {
             .and_then(|v| v.as_object().cloned())
             .unwrap_or_default();
 
-        let chain_id = args.get("chain_id")
+        let chain_id = args
+            .get("chain_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
 
-        let from = args.get("from")
+        let from = args
+            .get("from")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing from parameter"))?;
 
-        let to = args.get("to")
+        let to = args
+            .get("to")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing to parameter"))?;
 
-        let amount = args.get("amount")
+        let amount = args
+            .get("amount")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing amount parameter"))?;
 
@@ -517,4 +567,46 @@ impl McpServer {
             Err(e) => Err(anyhow!("Failed to estimate fees: {}", e)),
         }
     }
-} 
+
+    async fn call_transfer_sei(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
+        let args: serde_json::Map<String, Value> = arguments
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_default();
+
+        let chain_id = args
+            .get("chain_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
+
+        let to_address = args
+            .get("to_address")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing to_address parameter"))?;
+
+        let amount = args
+            .get("amount")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing amount parameter"))?;
+
+        let private_key = args
+            .get("private_key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow!("Missing private_key parameter"))?;
+
+        let request = crate::blockchain::models::SeiTransferRequest {
+            to_address: to_address.to_string(),
+            amount: amount.to_string(),
+            private_key: private_key.to_string(),
+            gas_limit: todo!(),
+            gas_price: todo!(),
+        };
+
+        match self.client.transfer_sei(chain_id, &request).await {
+            Ok(result) => {
+                let response = serde_json::to_string_pretty(&result)?;
+                Ok(vec![Content::Text { text: response }])
+            }
+            Err(e) => Err(anyhow!("Failed to transfer SEI tokens: {}", e)),
+        }
+    }
+}

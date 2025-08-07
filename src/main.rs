@@ -1,7 +1,7 @@
 use anyhow::Result;
 use axum::{
-    Router,
     routing::{get, post},
+    Router,
 };
 use std::env;
 use std::net::SocketAddr;
@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     } else {
         // Run as HTTP server (original behavior)
         tracing::info!("Starting as HTTP server...");
-        
+
         let app = Router::new()
             .route(
                 "/balance/:chain_id/:address",
@@ -50,8 +50,15 @@ async fn main() -> Result<()> {
                 "/history/:chain_id/:address",
                 get(api::history::get_transaction_history_handler),
             )
-            .route("/fees/estimate", post(api::fees::estimate_fees_handler))
+            .route(
+                "/estimate-fees/:chain_id",
+                post(api::fees::estimate_fees_handler),
+            )
             .route("/health", get(api::health::health_handler))
+            .route(
+                "/transfer/:chain_id",
+                post(api::transfer::transfer_sei_handler),
+            )
             .with_state(app_config.clone());
 
         let addr = SocketAddr::from(([0, 0, 0, 0], app_config.port));

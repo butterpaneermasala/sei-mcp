@@ -1,4 +1,5 @@
 pub mod balance;
-pub mod wallet;
-pub mod history;
 pub mod fees;
+pub mod history;
+pub mod transactions;
+pub mod wallet;
