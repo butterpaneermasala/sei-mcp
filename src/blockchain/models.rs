@@ -147,3 +147,66 @@ pub struct EstimateFeesResponse {
     pub total_fee: String,
     pub denom: String,
 }
+
+/// Defines the structure for a staking (delegate) request.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StakeRequest {
+    pub validator_address: String,
+    pub amount: String, // Amount in 'usei'
+    pub private_key: String,
+    pub gas_fee: u64, // Gas fee in 'usei', e.g., 7500
+}
+
+/// Defines the structure for an unstaking (unbond) request.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct UnstakeRequest {
+    pub validator_address: String,
+    pub amount: String, // Amount in 'usei'
+    pub private_key: String,
+    pub gas_fee: u64,
+}
+
+/// Defines the structure for a claim rewards request.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClaimRewardsRequest {
+    pub validator_address: String,
+    pub private_key: String,
+    pub gas_fee: u64,
+}
+
+// --- Validator Info Models (for deserializing REST API response) ---
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ValidatorInfo {
+    pub operator_address: String,
+    pub description: ValidatorDescription,
+    pub commission: Commission,
+    #[serde(default)]
+    pub status: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ValidatorDescription {
+    pub moniker: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Commission {
+    pub commission_rates: CommissionRates,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CommissionRates {
+    pub rate: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AllValidatorsResponse {
+    pub validators: Vec<ValidatorInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StakingAprResponse {
+    #[serde(rename = "staking_apr")]
+    pub staking_apr: String,
+}

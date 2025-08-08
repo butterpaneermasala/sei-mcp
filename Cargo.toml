@@ -40,5 +40,10 @@ actix-cors = "0.7"
 actix-governor = "0.5"
 lazy_static = "1.4"
 
+# Cosmos Dependencies
+cosmrs = { version = "0.14.0", features = ["rpc"] }
+bech32 = "0.9.1"
+prost = "0.12.3"
+
 [dev-dependencies]
 tempfile = "3.8"

@@ -60,6 +60,28 @@ async fn main() -> Result<()> {
                 "/transfer/:chain_id",
                 post(api::transfer::transfer_sei_handler),
             )
+            // --- Add Staking Routes ---
+            .route(
+                "/api/staking/:chain_id/stake",
+                post(api::staking::stake_handler),
+            )
+            .route(
+                "/api/staking/:chain_id/unstake",
+                post(api::staking::unstake_handler),
+            )
+            .route(
+                "/api/staking/:chain_id/claim-rewards",
+                post(api::staking::claim_rewards_handler),
+            )
+            .route(
+                "/api/staking/:chain_id/validators",
+                get(api::staking::get_validators_handler),
+            )
+            .route(
+                "/api/staking/:chain_id/apr",
+                get(api::staking::get_apr_handler),
+            )
+            // --- End Staking Routes ---
             .with_state(app_config.clone());
 
         let addr = SocketAddr::from(([0, 0, 0, 0], app_config.port));
