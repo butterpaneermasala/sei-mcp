@@ -1,5 +1,5 @@
 use crate::{
-    blockchain::client::SeiClient, blockchain::models::BalanceResponse, config::AppConfig,
+    blockchain::client::SeiClient, config::AppConfig,
 };
 use anyhow::Result;
 use axum::{

@@ -1,6 +1,6 @@
 use crate::{
     blockchain::client::SeiClient,
-    blockchain::models::{SeiTransferRequest, TransactionResponse},
+    blockchain::models::SeiTransferRequest,
     config::AppConfig,
 };
 use anyhow::Result;

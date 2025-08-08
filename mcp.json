@@ -1,11 +1,13 @@
 {
   "mcpServers": {
     "sei-mcp-server": {
-      "command": "/home/sahilkaushik/study_material/blockchain/sei-mcp/target/release/sei-mcp-server-rs",
+      "command": "cargo",
       "args": [
+        "run",
+        "--",
         "--mcp"
       ],
-      "cwd": "/home/sahilkaushik/study_material/blockchain/sei-mcp",
+      "cwd": "/path/to/sei-mcp-server-rs",
       "env": {
         "CHAIN_RPC_URLS": "sei=https://rpc.sei.io",
         "PORT": "3000"

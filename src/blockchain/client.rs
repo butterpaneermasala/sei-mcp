@@ -16,6 +16,7 @@ use std::collections::HashMap;
 
 // --- SeiClient Implementation ---
 
+#[derive(Clone)]
 pub struct SeiClient {
     client: Client,
     rpc_urls: HashMap<String, String>,

@@ -5,7 +5,6 @@ use tracing::{error, info};
 
 use crate::{
     blockchain::client::SeiClient,
-    blockchain::models::{ImportWalletError, WalletGenerationError},
     config::AppConfig,
 };
 

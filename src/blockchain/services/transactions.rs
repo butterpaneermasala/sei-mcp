@@ -80,7 +80,7 @@ pub async fn transfer_sei(
         U256::from(1500000000)
     };
 
-    let mut tx = TransactionRequest::new()
+    let tx = TransactionRequest::new()
         .to(to_address)
         .value(value)
         .from(wallet.address())

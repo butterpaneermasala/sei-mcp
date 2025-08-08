@@ -2,7 +2,6 @@ use crate::blockchain::models::BalanceResponse;
 use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde_json::{json, Value};
-use std::str::FromStr;
 use tracing::{debug, error, info};
 
 pub async fn get_balance(client: &Client, rpc_url: &str, address: &str) -> Result<BalanceResponse> {

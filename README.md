@@ -1,72 +1,56 @@
-# Sei MCP Server in Rust
+# Sei MCP Server
 
-A Model Context Protocol (MCP) server implementation for Sei blockchain operations, built in Rust.
+A Model Context Protocol (MCP) server for Sei blockchain operations with persistent encrypted wallet storage, similar to Foundry's Cast wallet functionality.
 
 ## Features
 
-This MCP server provides blockchain tools for:
+- 🔐 **AES-256-GCM Encrypted Wallet Storage** - Private keys are encrypted and stored locally
+- 💾 **Persistent Storage** - Wallets survive server restarts
+- 🔑 **Master Password Protection** - Single password protects all wallets
+- ✅ **Two-Step Transfer Confirmation** - Secure transfer workflow with confirmation codes
+- 🛠️ **MCP Protocol Support** - Standard MCP tools for blockchain operations
+- 🌐 **HTTP API Support** - Traditional REST API endpoints
 
-- **Balance Queries**: Get wallet balances on supported chains
-- **Wallet Management**: Create new wallets or import existing ones
-- **Transaction History**: View transaction history (Sei chain only)
-- **Fee Estimation**: Estimate transaction fees
-- **Health Checks**: Server status monitoring
+## Installation
 
-## Prerequisites
+```bash
+# Clone the repository
+git clone <repository-url>
+cd sei-mcp-server-rs
 
-- Rust (latest stable version)
-- Environment variables for blockchain RPC endpoints
+# Install dependencies
+cargo build --release
+```
 
-## Environment Setup
+## Configuration
 
 Create a `.env` file in the project root:
 
 ```env
-CHAIN_RPC_URLS=sei=https://rpc.sei.io
+# Blockchain RPC URLs
+CHAIN_RPC_URLS={"sei":"https://rpc.sei.io"}
+
+# Server port (for HTTP mode)
 PORT=3000
 ```
 
-## Running Modes
+### MCP Client Configuration
 
-### MCP Server Mode (for AI assistants)
-
-Run as an MCP server for integration with Claude Desktop, Cursor, or other MCP clients:
-
-```bash
-cargo run -- --mcp
-```
-
-### HTTP API Mode (traditional REST API)
-
-Run as a regular HTTP server:
-
-```bash
-cargo run
-```
-
-The HTTP server will be available at `http://localhost:3000` with endpoints:
-- `GET /health` - Health check
-- `GET /balance/{chain_id}/{address}` - Get balance
-- `GET /history/{chain_id}/{address}` - Get transaction history
-- `POST /wallet/create` - Create wallet
-- `POST /wallet/import` - Import wallet
-- `POST /fees/estimate` - Estimate fees
-
-## MCP Integration
-
-### Claude Desktop Configuration
-
-Add to your Claude Desktop `mcp.json`:
+Update your `mcp.json` file:
 
 ```json
 {
   "mcpServers": {
     "sei-mcp-server": {
       "command": "cargo",
-      "args": ["run", "--", "--mcp"],
+      "args": [
+        "run",
+        "--",
+        "--mcp"
+      ],
       "cwd": "/path/to/sei-mcp-server-rs",
       "env": {
-        "CHAIN_RPC_URLS": "sei=https://rpc.sei.io",
+        "CHAIN_RPC_URLS": "{\"sei\":\"https://rpc.sei.io\"}",
         "PORT": "3000"
       }
     }
@@ -74,136 +58,252 @@ Add to your Claude Desktop `mcp.json`:
 }
 ```
 
-### Cursor/VS Code Configuration  
+**Important**: Replace `/path/to/sei-mcp-server-rs` with the actual path to your project directory.
 
-Add to your VS Code settings or `.vscode/mcp.json`:
+## Usage
+
+### MCP Server Mode (Recommended)
+
+The MCP server runs on stdin/stdout and provides encrypted wallet storage:
+
+```bash
+# Start MCP server
+cargo run -- --mcp
+```
+
+### HTTP Server Mode
+
+```bash
+# Start HTTP server
+cargo run
+```
+
+## Secure Wallet Registration
+
+For maximum security, use the provided secure registration tool:
+
+```bash
+# Run the secure wallet registration tool
+./register_wallet.sh
+```
+
+This tool:
+- 🔐 Hides your private key and password input
+- 🧹 Clears terminal history after use
+- 📋 Generates the JSON request for you to copy/paste
+- ✅ Validates password confirmation
+
+## Wallet Management
+
+### 1. Register a Wallet
+
+First, register a wallet with encryption:
 
 ```json
 {
-  "mcp": {
-    "servers": {
-      "sei-mcp-server": {
-        "command": "cargo",
-        "args": ["run", "--", "--mcp"],
-        "cwd": "/path/to/sei-mcp-server-rs",
-        "env": {
-          "CHAIN_RPC_URLS": "sei=https://rpc.sei.io",
-          "PORT": "3000"
-        }
-      }
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "register_wallet",
+    "arguments": {
+      "wallet_name": "my_wallet",
+      "private_key": "0x7f0d4c977cf0b0891798702e6bd740dc2d9aa6195be2365ee947a3c6a08a38fa",
+      "master_password": "your_secure_password"
     }
   }
 }
 ```
 
-## Available MCP Tools
+### 2. List Stored Wallets
 
-### `get_balance`
-Get the balance of an address on a specific blockchain.
-
-**Parameters:**
-- `chain_id` (string): The blockchain chain ID (e.g., "sei")
-- `address` (string): The wallet address to check
-
-### `create_wallet`
-Create a new wallet with mnemonic phrase.
-
-**Parameters:** None
-
-### `import_wallet`
-Import a wallet from mnemonic phrase or private key.
-
-**Parameters:**
-- `mnemonic_or_private_key` (string): The mnemonic phrase or private key
-
-### `get_transaction_history`
-Get transaction history for an address (Sei chain only).
-
-**Parameters:**
-- `chain_id` (string): The blockchain chain ID (currently only "sei" supported)
-- `address` (string): The wallet address
-- `limit` (integer, optional): Number of transactions to return (default: 20, max: 100)
-
-### `estimate_fees`
-Estimate transaction fees for a transfer.
-
-**Parameters:**
-- `chain_id` (string): The blockchain chain ID
-- `from` (string): The sender address
-- `to` (string): The recipient address  
-- `amount` (string): The amount to send
-
-## Example Usage
-
-Once connected to an MCP client, you can use natural language to interact with the blockchain:
-
-- "What's the balance of address 0x31781a5B8ABBFeCd35421f37397E5251fC19a344 on Sei?"
-- "Create a new wallet for me"
-- "Show the transaction history for address 0x... on Sei"
-- "Estimate fees to send 1000 tokens from 0x... to 0x... on Sei"
-
-## Development
-
-### Build
-
-```bash
-cargo build
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "method": "tools/call",
+  "params": {
+    "name": "list_wallets",
+    "arguments": {
+      "master_password": "your_secure_password"
+    }
+  }
+}
 ```
 
-### Test
+### 3. Get Wallet Balance
 
-```bash
-cargo test
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 3,
+  "method": "tools/call",
+  "params": {
+    "name": "get_wallet_balance",
+    "arguments": {
+      "wallet_name": "my_wallet",
+      "chain_id": "sei",
+      "master_password": "your_secure_password"
+    }
+  }
+}
 ```
 
-### Run with logs
+### 4. Transfer Tokens (Two-Step Process)
 
-```bash
-RUST_LOG=debug cargo run -- --mcp
+#### Step 1: Initiate Transfer
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 4,
+  "method": "tools/call",
+  "params": {
+    "name": "transfer_from_wallet",
+    "arguments": {
+      "wallet_name": "my_wallet",
+      "to_address": "0x1234567890123456789012345678901234567890",
+      "amount": "1000000000000000000",
+      "chain_id": "sei",
+      "master_password": "your_secure_password"
+    }
+  }
+}
 ```
 
-## Project Structure
+This returns a confirmation code and transaction ID.
 
+#### Step 2: Confirm Transfer
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 5,
+  "method": "tools/call",
+  "params": {
+    "name": "confirm_transaction",
+    "arguments": {
+      "transaction_id": "ABC123",
+      "confirmation_code": "XYZ789",
+      "master_password": "your_secure_password"
+    }
+  }
+}
 ```
-src/
-├── main.rs              # Entry point with HTTP server configuration (CORS, rate limiting)
-├── mcp.rs               # MCP server implementation
-├── config.rs            # Configuration and environment management
-├── api/                 # HTTP API handlers with input validation
-│   ├── balance.rs       # Balance query endpoints
-│   ├── wallet.rs        # Wallet management endpoints
-│   ├── history.rs       # Transaction history endpoints
-│   ├── fees.rs          # Fee estimation endpoints
-│   └── health.rs        # Health check endpoint
-└── blockchain/          # Blockchain interaction layer
-    ├── client.rs        # HTTP client with timeouts and retries
-    ├── models.rs        # Data structures and validation
-    └── services/        # Blockchain service implementations
-        ├── balance.rs   # Balance query service
-        ├── fees.rs      # Fee estimation service
-        ├── history.rs   # Transaction history service
-        ├── wallet.rs    # Wallet management service
-        └── transactions.rs # Transaction operations
+
+### 5. Remove Wallet
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 6,
+  "method": "tools/call",
+  "params": {
+    "name": "remove_wallet",
+    "arguments": {
+      "wallet_name": "my_wallet",
+      "master_password": "your_secure_password"
+    }
+  }
+}
 ```
+
+## Available Tools
+
+### Basic Tools
+- `get_balance` - Get address balance
+- `create_wallet` - Create new wallet
+- `import_wallet` - Import wallet from private key/mnemonic
+- `get_transaction_history` - Get transaction history
+- `estimate_fees` - Estimate transaction fees
+- `transfer_sei` - Direct transfer (requires private key)
+
+### Enhanced Tools (with Persistent Storage)
+- `register_wallet` - Register wallet with encryption
+- `list_wallets` - List all stored wallets
+- `get_wallet_balance` - Get balance of stored wallet
+- `transfer_from_wallet` - Transfer from stored wallet (two-step)
+- `confirm_transaction` - Confirm pending transaction
+- `remove_wallet` - Remove wallet from storage
 
 ## Security Features
 
-- Rate limiting: 2 requests per second with burst allowance of 5
-- Request timeouts: 30 seconds for blockchain RPC calls
-- CORS: Configurable allowed origins
-- Compression: Response compression enabled
-- Input validation: Request payload validation
-- Logging: Structured logging with configurable levels
-- Environment separation: .env.example provided for configuration
+### 🔐 Encryption
+- Private keys encrypted with AES-256-GCM
+- Argon2 key derivation from master password
+- Unique nonce for each encryption
+- Base64 encoding for storage
 
-## Contributing
+### 🔑 Master Password
+- SHA-256 hashed for verification
+- Required for all wallet operations
+- Protects all stored wallets
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
+### ✅ Confirmation System
+- 6-character confirmation codes (3 letters + 3 numbers)
+- 5-minute expiration for pending transactions
+- Two-step transfer process
+
+## Storage Location
+
+Wallets are stored in: `~/.sei-mcp-server/wallets.json`
+
+The file structure:
+```json
+{
+  "wallets": {
+    "wallet_name": {
+      "wallet_name": "my_wallet",
+      "encrypted_private_key": "base64_encrypted_key",
+      "public_address": "0x...",
+      "created_at": "2024-01-01T00:00:00Z",
+      "updated_at": "2024-01-01T00:00:00Z"
+    }
+  },
+  "master_password_hash": "sha256_hash",
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+## Testing
+
+Run the test suite:
+
+```bash
+# Run all tests
+cargo test
+
+# Run specific test
+cargo test test_wallet_storage
+
+# Run integration tests
+./tests/test_persistent_wallet.sh
+```
+
+## Development
+
+### Project Structure
+```
+src/
+├── mcp/
+│   ├── encryption.rs      # AES-256-GCM encryption
+│   ├── wallet_storage.rs  # Persistent storage management
+│   ├── enhanced_tools.rs  # MCP tools with storage
+│   ├── tools.rs          # Basic MCP tools
+│   ├── protocol.rs       # MCP protocol definitions
+│   └── transport.rs      # MCP transport layer
+├── blockchain/           # Blockchain client and services
+├── api/                 # HTTP API endpoints
+└── main.rs              # Application entry point
+```
+
+### Adding New Tools
+
+1. Add tool function in `src/mcp/enhanced_tools.rs`
+2. Add tool definition in `list_enhanced_tools()`
+3. Add dispatch case in `src/mcp/mod.rs`
 
 ## License
 
-[Add your license here] 
+MIT License 

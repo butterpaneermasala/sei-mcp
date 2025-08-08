@@ -33,7 +33,8 @@ async fn main() -> Result<()> {
     if is_mcp_mode {
         // Run as MCP server
         tracing::info!("Starting as MCP server...");
-        let mcp_server = mcp::McpServer::new(app_config);
+        let client = blockchain::client::SeiClient::new(&app_config.chain_rpc_urls);
+        let mcp_server = mcp::McpServer::new(client);
         mcp_server.run().await?;
     } else {
         // Run as HTTP server (original behavior)
