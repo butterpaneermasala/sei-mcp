@@ -39,3 +39,6 @@ ethers-signers = "2.0.14"
 actix-cors = "0.7"
 actix-governor = "0.5"
 lazy_static = "1.4"
+
+[dev-dependencies]
+tempfile = "3.8"

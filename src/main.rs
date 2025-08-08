@@ -12,6 +12,7 @@ mod api;
 mod blockchain;
 mod config;
 mod mcp;
+mod mcp_working;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -33,8 +34,7 @@ async fn main() -> Result<()> {
     if is_mcp_mode {
         // Run as MCP server
         tracing::info!("Starting as MCP server...");
-        let client = blockchain::client::SeiClient::new(&app_config.chain_rpc_urls);
-        let mcp_server = mcp::McpServer::new(client);
+        let mcp_server = mcp_working::McpServer::new(app_config);
         mcp_server.run().await?;
     } else {
         // Run as HTTP server (original behavior)
