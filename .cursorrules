@@ -1,0 +1,34 @@
+# Cursor Rules for Sei MCP Server
+
+This is a Rust-based MCP (Model Context Protocol) server for Sei blockchain operations.
+
+## Project Structure
+- `src/main.rs` - Main entry point with dual mode (HTTP server and MCP server)
+- `src/mcp_working.rs` - MCP server implementation
+- `src/blockchain/` - Blockchain client and services
+- `src/api/` - HTTP API endpoints
+- `mcp.json` - MCP server configuration for Cursor
+
+## MCP Server
+The project includes an MCP server that provides blockchain tools:
+- Wallet operations (create, import, register, list)
+- Balance queries
+- Transaction history
+- Fee estimation
+- Token transfers
+- Event searching
+
+## Building and Running
+- Build: `cargo build`
+- Run MCP server: `cargo run -- --mcp`
+- Run HTTP server: `cargo run`
+
+## MCP Configuration
+The `mcp.json` file configures the MCP server for Cursor integration.
+The server should start automatically when Cursor loads the project.
+
+## Key Features
+- Dual mode operation (HTTP API + MCP server)
+- Secure wallet storage with encryption
+- Sei blockchain integration
+- Comprehensive blockchain operations
