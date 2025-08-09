@@ -1,18 +1,16 @@
 // src/blockchain/client.rs
 
 use crate::blockchain::models::{
-    BalanceResponse, ClaimRewardsRequest, EstimateFeesRequest, EstimateFeesResponse,
-    ImportWalletError, SeiTransferRequest, StakeRequest, TransactionHistoryResponse,
-    TransactionResponse, UnstakeRequest, ValidatorInfo, WalletGenerationError, WalletResponse,
+    BalanceResponse, EstimateFeesRequest, EstimateFeesResponse, ImportWalletError,
+    SeiTransferRequest, TransactionHistoryResponse, TransactionResponse, WalletGenerationError,
+    WalletResponse,
 };
 use crate::blockchain::services::balance as balance_service;
 use crate::blockchain::services::fees as fees_service;
 use crate::blockchain::services::history as history_service;
-use crate::blockchain::services::staking as staking_service;
 use crate::blockchain::services::transactions;
 use crate::blockchain::services::wallet as wallet_service;
 use anyhow::{anyhow, Result};
-use cosmrs::rpc::HttpClient as TendermintRpcClient;
 use reqwest::Client;
 use std::collections::HashMap;
 
@@ -95,42 +93,5 @@ impl SeiClient {
     ) -> Result<TransactionResponse> {
         let rpc_url = self.get_rpc_url(chain_id)?;
         transactions::transfer_sei(&self.client, rpc_url, request, &request.private_key).await
-    }
-
-    /// Stakes tokens to a validator.
-    pub async fn stake_tokens(
-        &self,
-        chain_id: &str,
-        request: &StakeRequest,
-    ) -> Result<TransactionResponse> {
-        staking_service::stake_tokens(&self.client, request, chain_id).await
-    }
-
-    /// Unstakes tokens from a validator.
-    pub async fn unstake_tokens(
-        &self,
-        chain_id: &str,
-        request: &UnstakeRequest,
-    ) -> Result<TransactionResponse> {
-        staking_service::unstake_tokens(&self.client, request, chain_id).await
-    }
-
-    /// Claims staking rewards from a validator.
-    pub async fn claim_rewards(
-        &self,
-        chain_id: &str,
-        request: &ClaimRewardsRequest,
-    ) -> Result<TransactionResponse> {
-        staking_service::claim_rewards(&self.client, request, chain_id).await
-    }
-
-    /// Gets information about all validators, including commission.
-    pub async fn get_all_validators(&self, chain_id: &str) -> Result<Vec<ValidatorInfo>> {
-        staking_service::get_all_validators(&self.client, chain_id).await
-    }
-
-    /// Gets the current staking APR.
-    pub async fn get_staking_apr(&self, chain_id: &str) -> Result<String> {
-        staking_service::get_staking_apr(&self.client, chain_id).await
     }
 }

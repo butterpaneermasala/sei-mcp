@@ -1,21 +1,20 @@
 // src/mcp_working.rs
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tracing::{debug, error, info};
+use tracing::{info, error, debug};
 
 use crate::blockchain::client::SeiClient;
-use crate::blockchain::models::{ClaimRewardsRequest, StakeRequest, UnstakeRequest};
 use crate::config::AppConfig;
+use crate::mcp::wallet_storage::{WalletStorage, StoredWallet};
 use crate::mcp::encryption::EncryptionManager;
-use crate::mcp::wallet_storage::{StoredWallet, WalletStorage};
-use chrono::{DateTime, Utc};
-use lazy_static::lazy_static;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use lazy_static::lazy_static;
+use rand::Rng;
+use rand::distributions::Alphanumeric;
+use chrono::{DateTime, Utc};
 
 // JSON-RPC message structures
 #[derive(Debug, Serialize, Deserialize)]
@@ -114,8 +113,7 @@ pub enum Content {
 
 // Global pending transactions storage
 lazy_static! {
-    static ref PENDING_TRANSACTIONS: Mutex<HashMap<String, PendingTransaction>> =
-        Mutex::new(HashMap::new());
+    static ref PENDING_TRANSACTIONS: Mutex<HashMap<String, PendingTransaction>> = Mutex::new(HashMap::new());
 }
 
 #[derive(Debug, Clone)]
@@ -133,14 +131,8 @@ struct PendingTransaction {
 
 fn generate_confirmation_code() -> String {
     let mut rng = rand::thread_rng();
-    let letters: String = (0..3)
-        .map(|_| rng.sample(Alphanumeric) as char)
-        .filter(|c| c.is_ascii_alphabetic())
-        .collect();
-    let numbers: String = (0..3)
-        .map(|_| rng.sample(Alphanumeric) as char)
-        .filter(|c| c.is_ascii_digit())
-        .collect();
+    let letters: String = (0..3).map(|_| rng.sample(Alphanumeric) as char).filter(|c| c.is_ascii_alphabetic()).collect();
+    let numbers: String = (0..3).map(|_| rng.sample(Alphanumeric) as char).filter(|c| c.is_ascii_digit()).collect();
     format!("{}{}", letters, numbers)
 }
 
@@ -265,9 +257,7 @@ impl McpServer {
         let tools = vec![
             Tool {
                 name: "get_balance".to_string(),
-                description: Some(
-                    "Get the balance of an address on a specific blockchain".to_string(),
-                ),
+                description: Some("Get the balance of an address on a specific blockchain".to_string()),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -294,9 +284,7 @@ impl McpServer {
             },
             Tool {
                 name: "import_wallet".to_string(),
-                description: Some(
-                    "Import a wallet from mnemonic phrase or private key".to_string(),
-                ),
+                description: Some("Import a wallet from mnemonic phrase or private key".to_string()),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -310,9 +298,7 @@ impl McpServer {
             },
             Tool {
                 name: "get_transaction_history".to_string(),
-                description: Some(
-                    "Get transaction history for an address (Sei chain only)".to_string(),
-                ),
+                description: Some("Get transaction history for an address (Sei chain only)".to_string()),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -396,9 +382,7 @@ impl McpServer {
             },
             Tool {
                 name: "register_wallet".to_string(),
-                description: Some(
-                    "Register a wallet with encryption for persistent storage".to_string(),
-                ),
+                description: Some("Register a wallet with encryption for persistent storage".to_string()),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -456,9 +440,7 @@ impl McpServer {
             },
             Tool {
                 name: "transfer_from_wallet".to_string(),
-                description: Some(
-                    "Initiate transfer from a registered wallet (two-step process)".to_string(),
-                ),
+                description: Some("Initiate transfer from a registered wallet (two-step process)".to_string()),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -496,9 +478,7 @@ impl McpServer {
             },
             Tool {
                 name: "confirm_transaction".to_string(),
-                description: Some(
-                    "Confirm a pending transaction with confirmation code".to_string(),
-                ),
+                description: Some("Confirm a pending transaction with confirmation code".to_string()),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -534,72 +514,6 @@ impl McpServer {
                         }
                     },
                     "required": ["wallet_name", "master_password"]
-                }),
-            },
-            Tool {
-                name: "stake_tokens".to_string(),
-                description: Some("Stake (delegate) tokens to a validator.".to_string()),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "chain_id": { "type": "string", "description": "e.g., 'sei' or 'sei-testnet'" },
-                        "validator_address": { "type": "string" },
-                        "amount": { "type": "string", "description": "Amount in usei" },
-                        "private_key": { "type": "string" },
-                        "gas_fee": { "type": "integer", "description": "Gas fee in usei, e.g., 7500" }
-                    },
-                    "required": ["chain_id", "validator_address", "amount", "private_key", "gas_fee"]
-                }),
-            },
-            Tool {
-                name: "unstake_tokens".to_string(),
-                description: Some("Unstake (unbond) tokens from a validator.".to_string()),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "chain_id": { "type": "string" },
-                        "validator_address": { "type": "string" },
-                        "amount": { "type": "string", "description": "Amount in usei" },
-                        "private_key": { "type": "string" },
-                        "gas_fee": { "type": "integer", "description": "Gas fee in usei, e.g., 7500" }
-                    },
-                    "required": ["chain_id", "validator_address", "amount", "private_key", "gas_fee"]
-                }),
-            },
-            Tool {
-                name: "claim_rewards".to_string(),
-                description: Some("Claim staking rewards from a validator.".to_string()),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "chain_id": { "type": "string" },
-                        "validator_address": { "type": "string" },
-                        "private_key": { "type": "string" },
-                        "gas_fee": { "type": "integer", "description": "Gas fee in usei, e.g., 7500" }
-                    },
-                    "required": ["chain_id", "validator_address", "private_key", "gas_fee"]
-                }),
-            },
-            Tool {
-                name: "get_validators".to_string(),
-                description: Some("Get a list of all validators and their info.".to_string()),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "chain_id": { "type": "string" }
-                    },
-                    "required": ["chain_id"]
-                }),
-            },
-            Tool {
-                name: "get_staking_apr".to_string(),
-                description: Some("Get the current estimated staking APR.".to_string()),
-                input_schema: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "chain_id": { "type": "string" }
-                    },
-                    "required": ["chain_id"]
                 }),
             },
         ];
@@ -639,10 +553,7 @@ impl McpServer {
             "get_balance" => self.call_get_balance(call_request.arguments).await,
             "create_wallet" => self.call_create_wallet(call_request.arguments).await,
             "import_wallet" => self.call_import_wallet(call_request.arguments).await,
-            "get_transaction_history" => {
-                self.call_get_transaction_history(call_request.arguments)
-                    .await
-            }
+            "get_transaction_history" => self.call_get_transaction_history(call_request.arguments).await,
             "estimate_fees" => self.call_estimate_fees(call_request.arguments).await,
             "transfer_sei" => self.call_transfer_sei(call_request.arguments).await,
             "register_wallet" => self.call_register_wallet(call_request.arguments).await,
@@ -651,11 +562,6 @@ impl McpServer {
             "transfer_from_wallet" => self.call_transfer_from_wallet(call_request.arguments).await,
             "confirm_transaction" => self.call_confirm_transaction(call_request.arguments).await,
             "remove_wallet" => self.call_remove_wallet(call_request.arguments).await,
-            "stake_tokens" => self.call_stake_tokens(call_request.arguments).await,
-            "unstake_tokens" => self.call_unstake_tokens(call_request.arguments).await,
-            "claim_rewards" => self.call_claim_rewards(call_request.arguments).await,
-            "get_validators" => self.call_get_validators(call_request.arguments).await,
-            "get_staking_apr" => self.call_get_staking_apr(call_request.arguments).await,
             _ => {
                 error!("Unknown tool: {}", call_request.name);
                 return JsonRpcResponse {
@@ -703,93 +609,72 @@ impl McpServer {
 
     async fn call_get_balance(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let chain_id = args
-            .get("chain_id")
+        let chain_id = args.get("chain_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let address = args
-            .get("address")
+        let address = args.get("address")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing address parameter"))?;
 
         let balance = self.client.get_balance(chain_id, address).await?;
         let response = format!("Balance: {} {}", balance.amount, balance.denom);
-
+        
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_create_wallet(&self, _arguments: Option<Value>) -> Result<Vec<Content>> {
         let wallet = self.client.create_wallet().await?;
-        let response = format!(
-            "Wallet created successfully!\nAddress: {}\nPrivate Key: {}\nMnemonic: {}",
-            wallet.address,
-            wallet.private_key,
-            wallet.mnemonic.unwrap_or_default()
-        );
-
+        let response = format!("Wallet created successfully!\nAddress: {}\nPrivate Key: {}\nMnemonic: {}", 
+            wallet.address, wallet.private_key, wallet.mnemonic.unwrap_or_default());
+        
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_import_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let mnemonic_or_key = args
-            .get("mnemonic_or_private_key")
+        let mnemonic_or_key = args.get("mnemonic_or_private_key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing mnemonic_or_private_key parameter"))?;
 
         let wallet = self.client.import_wallet(mnemonic_or_key).await?;
-        let response = format!(
-            "Wallet imported successfully!\nAddress: {}\nPrivate Key: {}\nMnemonic: {}",
-            wallet.address,
-            wallet.private_key,
-            wallet.mnemonic.unwrap_or_default()
-        );
-
+        let response = format!("Wallet imported successfully!\nAddress: {}\nPrivate Key: {}\nMnemonic: {}", 
+            wallet.address, wallet.private_key, wallet.mnemonic.unwrap_or_default());
+        
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_get_transaction_history(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let chain_id = args
-            .get("chain_id")
+        let chain_id = args.get("chain_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let address = args
-            .get("address")
+        let address = args.get("address")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing address parameter"))?;
-        let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(20);
+        let limit = args.get("limit")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(20);
 
-        let history = self
-            .client
-            .get_transaction_history(chain_id, address, limit)
-            .await?;
-        let response = format!(
-            "Transaction history for {} ({} transactions):\n{}",
-            address,
-            history.transactions.len(),
-            serde_json::to_string_pretty(&history.transactions).unwrap()
-        );
-
+        let history = self.client.get_transaction_history(chain_id, address, limit).await?;
+        let response = format!("Transaction history for {} ({} transactions):\n{}", 
+            address, history.transactions.len(), 
+            serde_json::to_string_pretty(&history.transactions).unwrap());
+        
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_estimate_fees(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let chain_id = args
-            .get("chain_id")
+        let chain_id = args.get("chain_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let from = args
-            .get("from")
+        let from = args.get("from")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing from parameter"))?;
-        let to = args
-            .get("to")
+        let to = args.get("to")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing to parameter"))?;
-        let amount = args
-            .get("amount")
+        let amount = args.get("amount")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing amount parameter"))?;
 
@@ -800,30 +685,24 @@ impl McpServer {
         };
 
         let fees = self.client.estimate_fees(chain_id, &request).await?;
-        let response = format!(
-            "Fee estimation:\nEstimated Gas: {}\nGas Price: {}\nTotal Fee: {} {}\nDenom: {}",
-            fees.estimated_gas, fees.gas_price, fees.total_fee, fees.denom, fees.denom
-        );
-
+        let response = format!("Fee estimation:\nEstimated Gas: {}\nGas Price: {}\nTotal Fee: {} {}\nDenom: {}", 
+            fees.estimated_gas, fees.gas_price, fees.total_fee, fees.denom, fees.denom);
+        
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_transfer_sei(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let chain_id = args
-            .get("chain_id")
+        let chain_id = args.get("chain_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let to_address = args
-            .get("to_address")
+        let to_address = args.get("to_address")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing to_address parameter"))?;
-        let amount = args
-            .get("amount")
+        let amount = args.get("amount")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing amount parameter"))?;
-        let private_key = args
-            .get("private_key")
+        let private_key = args.get("private_key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing private_key parameter"))?;
 
@@ -836,27 +715,21 @@ impl McpServer {
         };
 
         let result = self.client.transfer_sei(chain_id, &request).await?;
-        let response = format!(
-            "Transfer completed successfully!\nTransaction Hash: {}",
-            result.tx_hash
-        );
-
+        let response = format!("Transfer completed successfully!\nTransaction Hash: {}", result.tx_hash);
+        
         Ok(vec![Content::Text { text: response }])
     }
 
     // Enhanced wallet methods (Cast-like features)
     async fn call_register_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let wallet_name = args
-            .get("wallet_name")
+        let wallet_name = args.get("wallet_name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing wallet_name parameter"))?;
-        let private_key = args
-            .get("private_key")
+        let private_key = args.get("private_key")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing private_key parameter"))?;
-        let master_password = args
-            .get("master_password")
+        let master_password = args.get("master_password")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
 
@@ -868,20 +741,16 @@ impl McpServer {
             wallet_name.to_string(),
             private_key.to_string(),
             "".to_string(), // We'll get the address from the private key
-            master_password,
+            master_password
         )?;
 
-        let response = format!(
-            "Wallet '{}' registered successfully with encryption!",
-            wallet_name
-        );
+        let response = format!("Wallet '{}' registered successfully with encryption!", wallet_name);
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_list_wallets(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let master_password = args
-            .get("master_password")
+        let master_password = args.get("master_password")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
 
@@ -890,38 +759,27 @@ impl McpServer {
 
         // List wallets from storage
         let wallets = crate::mcp::wallet_storage::list_wallets_from_storage()?;
-
+        
         if wallets.is_empty() {
             let response = "No wallets found. Register a wallet first using register_wallet.";
-            Ok(vec![Content::Text {
-                text: response.to_string(),
-            }])
+            Ok(vec![Content::Text { text: response.to_string() }])
         } else {
-            let response = format!(
-                "Registered wallets ({}):\n{}",
+            let response = format!("Registered wallets ({}):\n{}", 
                 wallets.len(),
-                wallets
-                    .iter()
-                    .map(|w| format!("- {}: {}", w.wallet_name, w.public_address))
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            );
+                wallets.iter().map(|w| format!("- {}: {}", w.wallet_name, w.public_address)).collect::<Vec<_>>().join("\n"));
             Ok(vec![Content::Text { text: response }])
         }
     }
 
     async fn call_get_wallet_balance(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let wallet_name = args
-            .get("wallet_name")
+        let wallet_name = args.get("wallet_name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing wallet_name parameter"))?;
-        let chain_id = args
-            .get("chain_id")
+        let chain_id = args.get("chain_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let master_password = args
-            .get("master_password")
+        let master_password = args.get("master_password")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
 
@@ -929,59 +787,40 @@ impl McpServer {
         crate::mcp::wallet_storage::initialize_wallet_storage(master_password)?;
 
         // Get wallet from storage
-        let wallet =
-            crate::mcp::wallet_storage::get_wallet_from_storage(wallet_name, master_password)?;
-
+        let wallet = crate::mcp::wallet_storage::get_wallet_from_storage(wallet_name, master_password)?;
+        
         // Get balance using the wallet's address
-        let balance = self
-            .client
-            .get_balance(chain_id, &wallet.public_address)
-            .await?;
-        let response = format!(
-            "Wallet '{}' balance: {} {}",
-            wallet_name, balance.amount, balance.denom
-        );
-
+        let balance = self.client.get_balance(chain_id, &wallet.public_address).await?;
+        let response = format!("Wallet '{}' balance: {} {}", wallet_name, balance.amount, balance.denom);
+        
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_transfer_from_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let wallet_name = args
-            .get("wallet_name")
+        let wallet_name = args.get("wallet_name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing wallet_name parameter"))?;
-        let to_address = args
-            .get("to_address")
+        let to_address = args.get("to_address")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing to_address parameter"))?;
-        let amount = args
-            .get("amount")
+        let amount = args.get("amount")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing amount parameter"))?;
-        let chain_id = args
-            .get("chain_id")
+        let chain_id = args.get("chain_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let master_password = args
-            .get("master_password")
+        let master_password = args.get("master_password")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
-        let gas_limit = args
-            .get("gas_limit")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let gas_price = args
-            .get("gas_price")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        let gas_limit = args.get("gas_limit").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let gas_price = args.get("gas_price").and_then(|v| v.as_str()).map(|s| s.to_string());
 
         // Initialize wallet storage
         crate::mcp::wallet_storage::initialize_wallet_storage(master_password)?;
 
         // Get wallet from storage
-        let wallet =
-            crate::mcp::wallet_storage::get_wallet_from_storage(wallet_name, master_password)?;
+        let wallet = crate::mcp::wallet_storage::get_wallet_from_storage(wallet_name, master_password)?;
 
         // Generate transaction ID and confirmation code
         let transaction_id = generate_transaction_id();
@@ -1015,25 +854,20 @@ impl McpServer {
 
     async fn call_confirm_transaction(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let transaction_id = args
-            .get("transaction_id")
+        let transaction_id = args.get("transaction_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing transaction_id parameter"))?;
-        let confirmation_code = args
-            .get("confirmation_code")
+        let confirmation_code = args.get("confirmation_code")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing confirmation_code parameter"))?;
-        let master_password = args
-            .get("master_password")
+        let master_password = args.get("master_password")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
 
         // Get pending transaction
         let pending_tx = {
             let pending_storage = PENDING_TRANSACTIONS.lock().unwrap();
-            pending_storage
-                .get(transaction_id)
-                .cloned()
+            pending_storage.get(transaction_id).cloned()
                 .ok_or_else(|| anyhow!("Transaction not found or expired"))?
         };
 
@@ -1050,33 +884,22 @@ impl McpServer {
                 let mut pending_storage = PENDING_TRANSACTIONS.lock().unwrap();
                 pending_storage.remove(transaction_id);
             }
-            return Err(anyhow!(
-                "Transaction expired. Please initiate a new transfer."
-            ));
+            return Err(anyhow!("Transaction expired. Please initiate a new transfer."));
         }
 
         // Get wallet from storage
-        let wallet = crate::mcp::wallet_storage::get_wallet_from_storage(
-            &pending_tx.wallet_name,
-            master_password,
-        )?;
+        let wallet = crate::mcp::wallet_storage::get_wallet_from_storage(&pending_tx.wallet_name, master_password)?;
 
         // Execute transfer
         let request = crate::blockchain::models::SeiTransferRequest {
             to_address: pending_tx.to_address.clone(),
             amount: pending_tx.amount.clone(),
-            private_key: crate::mcp::wallet_storage::get_decrypted_private_key_from_storage(
-                &pending_tx.wallet_name,
-                master_password,
-            )?,
+            private_key: crate::mcp::wallet_storage::get_decrypted_private_key_from_storage(&pending_tx.wallet_name, master_password)?,
             gas_limit: pending_tx.gas_limit.clone(),
             gas_price: pending_tx.gas_price.clone(),
         };
 
-        let result = self
-            .client
-            .transfer_sei(&pending_tx.chain_id, &request)
-            .await?;
+        let result = self.client.transfer_sei(&pending_tx.chain_id, &request).await?;
 
         // Remove pending transaction
         {
@@ -1094,12 +917,10 @@ impl McpServer {
 
     async fn call_remove_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.unwrap_or(serde_json::json!({}));
-        let wallet_name = args
-            .get("wallet_name")
+        let wallet_name = args.get("wallet_name")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing wallet_name parameter"))?;
-        let master_password = args
-            .get("master_password")
+        let master_password = args.get("master_password")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
 
@@ -1108,75 +929,12 @@ impl McpServer {
 
         // Remove wallet from storage
         let removed = crate::mcp::wallet_storage::remove_wallet_from_storage(wallet_name)?;
-
+        
         if removed {
-            let response = format!(
-                "Wallet '{}' removed successfully from storage.",
-                wallet_name
-            );
+            let response = format!("Wallet '{}' removed successfully from storage.", wallet_name);
             Ok(vec![Content::Text { text: response }])
         } else {
             Err(anyhow!("Wallet '{}' not found", wallet_name))
         }
-    }
-    async fn call_stake_tokens(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or_default();
-        let chain_id = args["chain_id"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing chain_id"))?;
-        let request: StakeRequest = serde_json::from_value(args.clone())?;
-
-        let result = self.client.stake_tokens(chain_id, &request).await?;
-        let response = format!("Staking transaction sent! Hash: {}", result.tx_hash);
-        Ok(vec![Content::Text { text: response }])
-    }
-
-    async fn call_unstake_tokens(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or_default();
-        let chain_id = args["chain_id"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing chain_id"))?;
-        let request: UnstakeRequest = serde_json::from_value(args.clone())?;
-
-        let result = self.client.unstake_tokens(chain_id, &request).await?;
-        let response = format!("Unstaking transaction sent! Hash: {}", result.tx_hash);
-        Ok(vec![Content::Text { text: response }])
-    }
-
-    async fn call_claim_rewards(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or_default();
-        let chain_id = args["chain_id"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing chain_id"))?;
-        let request: ClaimRewardsRequest = serde_json::from_value(args.clone())?;
-
-        let result = self.client.claim_rewards(chain_id, &request).await?;
-        let response = format!("Claim rewards transaction sent! Hash: {}", result.tx_hash);
-        Ok(vec![Content::Text { text: response }])
-    }
-
-    async fn call_get_validators(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or_default();
-        let chain_id = args["chain_id"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing chain_id"))?;
-
-        let validators = self.client.get_all_validators(chain_id).await?;
-        let response = format!(
-            "Validators:\n{}",
-            serde_json::to_string_pretty(&validators)?
-        );
-        Ok(vec![Content::Text { text: response }])
-    }
-
-    async fn call_get_staking_apr(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or_default();
-        let chain_id = args["chain_id"]
-            .as_str()
-            .ok_or_else(|| anyhow!("Missing chain_id"))?;
-
-        let apr = self.client.get_staking_apr(chain_id).await?;
-        let response = format!("Estimated Staking APR for {}: {}%", chain_id, apr);
-        Ok(vec![Content::Text { text: response }])
     }
 }
