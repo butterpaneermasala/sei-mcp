@@ -147,3 +147,21 @@ pub struct EstimateFeesResponse {
     pub total_fee: String,
     pub denom: String,
 }
+
+/// Represents the query parameters for searching events.
+#[derive(Debug, Clone)]
+pub struct EventQuery {
+    pub contract_address: Option<String>,
+    pub event_type: Option<String>,
+    pub attribute_key: Option<String>,
+    pub attribute_value: Option<String>,
+    pub from_block: Option<u64>,
+    pub to_block: Option<u64>,
+}
+
+/// The response structure for the search_events endpoint.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SearchEventsResponse {
+    pub txs: Vec<serde_json::Value>,
+    pub total_count: u32,
+}

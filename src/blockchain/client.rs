@@ -11,24 +11,29 @@ use crate::blockchain::services::history as history_service;
 use crate::blockchain::services::transactions;
 use crate::blockchain::services::wallet as wallet_service;
 use anyhow::{anyhow, Result};
-use reqwest::Client;
+use reqwest::Client as ReqwestClient;
 use std::collections::HashMap;
+use tendermint_rpc::{
+    client::Client as TendermintClient, client::HttpClient, client::WebSocketClient, Order,
+};
 
 // --- SeiClient Implementation ---
 
 #[derive(Clone)]
 pub struct SeiClient {
-    client: Client,
+    client: ReqwestClient,
     rpc_urls: HashMap<String, String>,
+    pub websocket_url: String,
 }
 
 impl SeiClient {
     /// Constructor for creating a new `SeiClient`.
     /// It takes a HashMap of chain_id -> rpc_url.
-    pub fn new(rpc_urls: &HashMap<String, String>) -> Self {
+    pub fn new(rpc_urls: &HashMap<String, String>, websocket_url: String) -> Self {
         Self {
-            client: Client::new(),
+            client: ReqwestClient::new(),
             rpc_urls: rpc_urls.clone(),
+            websocket_url,
         }
     }
 
@@ -93,5 +98,47 @@ impl SeiClient {
     ) -> Result<TransactionResponse> {
         let rpc_url = self.get_rpc_url(chain_id)?;
         transactions::transfer_sei(&self.client, rpc_url, request, &request.private_key).await
+    }
+    /// Searches for transactions matching a given query.
+    pub async fn search_txs(
+        &self,
+        query: String,
+        page: u32,
+        per_page: u8,
+        order: Order,
+    ) -> Result<tendermint_rpc::endpoint::tx_search::Response, anyhow::Error> {
+        // Get the RPC URL for the tendermint client
+        let rpc_url = self
+            .rpc_urls
+            .get("sei")
+            .ok_or_else(|| anyhow!("No RPC URL found for 'sei' chain"))?;
+
+        let http_client = HttpClient::new(rpc_url.as_str())
+            .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
+
+        let response = http_client
+            .tx_search(
+                query.parse().map_err(|e| anyhow!("Invalid query: {}", e))?,
+                false, // prove
+                page,
+                per_page,
+                order,
+            )
+            .await
+            .map_err(|e| anyhow!("RPC error on tx_search: {}", e))?;
+
+        Ok(response)
+    }
+
+    /// Returns a WebSocket client for event subscriptions.
+    pub async fn get_subscription_client(&self) -> Result<WebSocketClient, anyhow::Error> {
+        let (client, driver) = WebSocketClient::new(self.websocket_url.as_str())
+            .await
+            .map_err(|e| anyhow!("Failed to connect to WebSocket: {}", e))?;
+
+        // The driver task handles the connection and must be spawned.
+        tokio::spawn(driver.run());
+
+        Ok(client)
     }
 }

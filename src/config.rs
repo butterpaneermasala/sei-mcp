@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
@@ -8,6 +8,7 @@ use tracing::error;
 pub struct AppConfig {
     pub port: u16,
     pub chain_rpc_urls: HashMap<String, String>,
+    pub websocket_url: String,
 }
 
 impl AppConfig {
@@ -42,9 +43,14 @@ impl AppConfig {
             return Err(anyhow!("No valid RPC URLs found in CHAIN_RPC_URLS"));
         }
 
+        // Get websocket URL from environment variable
+        let websocket_url =
+            env::var("WEBSOCKET_URL").unwrap_or_else(|_| "wss://rpc.sei.io/websocket".to_string());
+
         Ok(Self {
             port,
             chain_rpc_urls,
+            websocket_url,
         })
     }
 }

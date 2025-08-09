@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
                 get(api::history::get_transaction_history_handler),
             )
             .route(
-                "/fees/estimate/:chain_id", // Corrected path to match file
+                "/fees/estimate/:chain_id",
                 post(api::fees::estimate_fees_handler),
             )
             .route("/health", get(api::health::health_handler))
@@ -60,13 +60,20 @@ async fn main() -> Result<()> {
                 "/transfer/:chain_id",
                 post(api::transfer::transfer_sei_handler),
             )
+            .route("/search-events", get(api::event::search_events))
+            .route("/get-contract-events", get(api::event::get_contract_events))
+            .route(
+                "/subscribe-contract-events",
+                get(api::event::subscribe_contract_events),
+            )
             .with_state(app_config.clone());
 
         let addr = SocketAddr::from(([0, 0, 0, 0], app_config.port));
 
         tracing::info!("HTTP Server listening on {}", addr);
 
-        axum::serve(tokio::net::TcpListener::bind(addr).await?, app)
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        axum::serve(listener, app)
             .await
             .context("HTTP server failed")?;
     }

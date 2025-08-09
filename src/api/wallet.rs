@@ -40,7 +40,7 @@ pub async fn create_wallet_handler(
 ) -> Result<Json<WalletOutput>, (axum::http::StatusCode, String)> {
     info!("Received request to create a new wallet.");
 
-    let client = SeiClient::new(&config.chain_rpc_urls);
+    let client = SeiClient::new(&config.chain_rpc_urls, config.websocket_url.clone());
 
     match client.create_wallet().await {
         Ok(wallet) => {
@@ -69,7 +69,7 @@ pub async fn import_wallet_handler(
 ) -> Result<Json<ImportWalletOutput>, (axum::http::StatusCode, String)> {
     info!("Received request to import a wallet.");
 
-    let client = SeiClient::new(&config.chain_rpc_urls);
+    let client = SeiClient::new(&config.chain_rpc_urls, config.websocket_url.clone());
 
     match client.import_wallet(&payload.mnemonic_or_private_key).await {
         Ok(wallet) => {
