@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{
     routing::{get, post},
     Router,
@@ -35,7 +35,7 @@ async fn main() -> Result<()> {
         // Run as MCP server
         tracing::info!("Starting as MCP server...");
         let mcp_server = mcp_working::McpServer::new(app_config);
-        mcp_server.run().await?;
+        mcp_server.run().await.context("Failed to run MCP server")?;
     } else {
         // Run as HTTP server (original behavior)
         tracing::info!("Starting as HTTP server...");
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
                 get(api::history::get_transaction_history_handler),
             )
             .route(
-                "/estimate-fees/:chain_id",
+                "/fees/estimate/:chain_id", // Corrected path to match file
                 post(api::fees::estimate_fees_handler),
             )
             .route("/health", get(api::health::health_handler))
@@ -66,7 +66,9 @@ async fn main() -> Result<()> {
 
         tracing::info!("HTTP Server listening on {}", addr);
 
-        axum::serve(tokio::net::TcpListener::bind(addr).await?, app).await?;
+        axum::serve(tokio::net::TcpListener::bind(addr).await?, app)
+            .await
+            .context("HTTP server failed")?;
     }
 
     Ok(())

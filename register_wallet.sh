@@ -5,18 +5,18 @@ echo "=================================="
 echo ""
 
 # Get wallet name
-read -p "Enter wallet name: " wallet_name
+read -r -p "Enter wallet name: " wallet_name
 
 # Get private key securely
-read -s -p "Enter private key (will be hidden): " private_key
+read -r -s -p "Enter private key (will be hidden): " private_key
 echo ""
 
 # Get master password securely
-read -s -p "Enter master password (will be hidden): " master_password
+read -r -s -p "Enter master password (will be hidden): " master_password
 echo ""
 
 # Confirm master password
-read -s -p "Confirm master password (will be hidden): " confirm_password
+read -r -s -p "Confirm master password (will be hidden): " confirm_password
 echo ""
 
 if [ "$master_password" != "$confirm_password" ]; then
@@ -27,7 +27,7 @@ fi
 echo ""
 echo "🔐 Encrypting and storing wallet..."
 
-# Create JSON request
+# Create JSON request safely using a heredoc
 json_request=$(cat <<EOF
 {
   "jsonrpc": "2.0",
@@ -45,20 +45,16 @@ json_request=$(cat <<EOF
 EOF
 )
 
-# Clear terminal history for security
-echo "⚠️  Clearing terminal history for security..."
-history -c
-history -w
-rm -f ~/.bash_history ~/.zsh_history 2>/dev/null
+# Send JSON to MCP server
+echo "📡 Sending wallet registration request..."
+response=$(curl -s -X POST http://127.0.0.1:3000 \
+    -H "Content-Type: application/json" \
+    -d "$json_request")
 
-echo "✅ Terminal history cleared!"
+echo "📬 Server response:"
+echo "$response" | jq . # Pipe to jq for pretty printing if available
+
+echo ""
 echo "🔒 Your private key is now encrypted and stored securely."
-echo ""
-echo "💡 Next steps:"
-echo "   1. Start MCP server: cargo run -- --mcp"
-echo "   2. Copy and paste this JSON to register your wallet:"
-echo ""
-echo "$json_request"
-echo ""
 echo "📁 Wallet will be stored in: ~/.sei-mcp-server/wallets.json"
-echo "🔐 Encrypted with AES-256-GCM" 
+echo "🔐 Encrypted with AES-256-GCM"

@@ -1,20 +1,18 @@
 // src/mcp_working.rs
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Context, Result};
+use chrono::{DateTime, Utc};
+use lazy_static::lazy_static;
+use rand::distributions::Alphanumeric;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Mutex;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tracing::{info, error, debug};
+use tracing::{debug, error, info};
 
 use crate::blockchain::client::SeiClient;
 use crate::config::AppConfig;
-use crate::mcp::wallet_storage::{WalletStorage, StoredWallet};
-use crate::mcp::encryption::EncryptionManager;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use lazy_static::lazy_static;
-use rand::Rng;
-use rand::distributions::Alphanumeric;
-use chrono::{DateTime, Utc};
 
 // JSON-RPC message structures
 #[derive(Debug, Serialize, Deserialize)]
@@ -113,7 +111,8 @@ pub enum Content {
 
 // Global pending transactions storage
 lazy_static! {
-    static ref PENDING_TRANSACTIONS: Mutex<HashMap<String, PendingTransaction>> = Mutex::new(HashMap::new());
+    static ref PENDING_TRANSACTIONS: Mutex<HashMap<String, PendingTransaction>> =
+        Mutex::new(HashMap::new());
 }
 
 #[derive(Debug, Clone)]
@@ -131,14 +130,19 @@ struct PendingTransaction {
 
 fn generate_confirmation_code() -> String {
     let mut rng = rand::thread_rng();
-    let letters: String = (0..3).map(|_| rng.sample(Alphanumeric) as char).filter(|c| c.is_ascii_alphabetic()).collect();
-    let numbers: String = (0..3).map(|_| rng.sample(Alphanumeric) as char).filter(|c| c.is_ascii_digit()).collect();
-    format!("{}{}", letters, numbers)
+    let chars: String = std::iter::repeat(())
+        .map(|()| rng.sample(Alphanumeric))
+        .map(char::from)
+        .take(6)
+        .collect();
+    chars.to_uppercase()
 }
 
 fn generate_transaction_id() -> String {
     let mut rng = rand::thread_rng();
-    (0..6).map(|_| rng.sample(Alphanumeric) as char).collect()
+    (0..8)
+        .map(|_| rng.sample(Alphanumeric).to_string())
+        .collect()
 }
 
 pub struct McpServer {
@@ -159,20 +163,28 @@ impl McpServer {
         let stdout = tokio::io::stdout();
         let mut reader = BufReader::new(stdin);
         let mut writer = stdout;
+        let mut buffer = String::new();
 
         loop {
-            let mut line = String::new();
-            if reader.read_line(&mut line).await? == 0 {
-                break;
-            }
-
-            if let Some(response) = self.handle_message(&line).await {
-                writer.write_all(response.as_bytes()).await?;
-                writer.write_all(b"\n").await?;
-                writer.flush().await?;
+            match reader.read_line(&mut buffer).await {
+                Ok(0) => break, // EOF
+                Ok(_) => {
+                    if let Ok(_request) = serde_json::from_str::<JsonRpcRequest>(&buffer) {
+                        debug!("Received complete message: {}", buffer.trim());
+                        if let Some(response) = self.handle_message(&buffer).await {
+                            writer.write_all(response.as_bytes()).await?;
+                            writer.write_all(b"\n").await?;
+                            writer.flush().await?;
+                        }
+                        buffer.clear();
+                    }
+                }
+                Err(e) => {
+                    error!("Error reading from stdin: {}", e);
+                    break;
+                }
             }
         }
-
         Ok(())
     }
 
@@ -181,8 +193,6 @@ impl McpServer {
         if message.is_empty() {
             return None;
         }
-
-        debug!("Received message: {}", message);
 
         match serde_json::from_str::<JsonRpcRequest>(message) {
             Ok(request) => {
@@ -231,7 +241,7 @@ impl McpServer {
             protocol_version: "2024-11-05".to_string(),
             capabilities: ServerCapabilities {
                 tools: Some(ToolsCapability {
-                    list_changed: Some(true),
+                    list_changed: Some(false),
                 }),
                 resources: None,
                 prompts: None,
@@ -340,7 +350,7 @@ impl McpServer {
                         },
                         "amount": {
                             "type": "string",
-                            "description": "The amount to send"
+                            "description": "The amount to send in the smallest unit (e.g., usei)"
                         }
                     },
                     "required": ["chain_id", "from", "to", "amount"]
@@ -348,7 +358,7 @@ impl McpServer {
             },
             Tool {
                 name: "transfer_sei".to_string(),
-                description: Some("Transfer SEI tokens to another address".to_string()),
+                description: Some("Transfer SEI tokens to another address (requires private key directly)".to_string()),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -362,7 +372,7 @@ impl McpServer {
                         },
                         "amount": {
                             "type": "string",
-                            "description": "The amount of SEI tokens to transfer"
+                            "description": "The amount of SEI to transfer in the smallest unit (e.g., usei)"
                         },
                         "private_key": {
                             "type": "string",
@@ -388,7 +398,7 @@ impl McpServer {
                     "properties": {
                         "wallet_name": {
                             "type": "string",
-                            "description": "The name for the wallet"
+                            "description": "A unique name for the wallet"
                         },
                         "private_key": {
                             "type": "string",
@@ -410,7 +420,7 @@ impl McpServer {
                     "properties": {
                         "master_password": {
                             "type": "string",
-                            "description": "The master password to decrypt wallets"
+                            "description": "The master password to access wallet storage"
                         }
                     },
                     "required": ["master_password"]
@@ -424,7 +434,7 @@ impl McpServer {
                     "properties": {
                         "wallet_name": {
                             "type": "string",
-                            "description": "The name of the wallet"
+                            "description": "The name of the registered wallet"
                         },
                         "chain_id": {
                             "type": "string",
@@ -432,7 +442,7 @@ impl McpServer {
                         },
                         "master_password": {
                             "type": "string",
-                            "description": "The master password to decrypt wallet"
+                            "description": "The master password for the wallet storage"
                         }
                     },
                     "required": ["wallet_name", "chain_id", "master_password"]
@@ -440,7 +450,7 @@ impl McpServer {
             },
             Tool {
                 name: "transfer_from_wallet".to_string(),
-                description: Some("Initiate transfer from a registered wallet (two-step process)".to_string()),
+                description: Some("Initiate a secure, two-step transfer from a registered wallet.".to_string()),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
@@ -454,7 +464,7 @@ impl McpServer {
                         },
                         "amount": {
                             "type": "string",
-                            "description": "The amount to transfer"
+                            "description": "The amount to transfer in the smallest unit (e.g., usei)"
                         },
                         "chain_id": {
                             "type": "string",
@@ -462,7 +472,7 @@ impl McpServer {
                         },
                         "master_password": {
                             "type": "string",
-                            "description": "The master password to decrypt wallet"
+                            "description": "The master password for the wallet storage"
                         },
                         "gas_limit": {
                             "type": "string",
@@ -478,21 +488,21 @@ impl McpServer {
             },
             Tool {
                 name: "confirm_transaction".to_string(),
-                description: Some("Confirm a pending transaction with confirmation code".to_string()),
+                description: Some("Confirm a pending transaction with the provided confirmation code.".to_string()),
                 input_schema: serde_json::json!({
                     "type": "object",
                     "properties": {
                         "transaction_id": {
                             "type": "string",
-                            "description": "The transaction ID from the transfer request"
+                            "description": "The transaction ID from the transfer initiation"
                         },
                         "confirmation_code": {
                             "type": "string",
-                            "description": "The confirmation code shown in the transfer response"
+                            "description": "The confirmation code from the transfer initiation"
                         },
                         "master_password": {
                             "type": "string",
-                            "description": "The master password to decrypt wallet"
+                            "description": "The master password for the wallet storage"
                         }
                     },
                     "required": ["transaction_id", "confirmation_code", "master_password"]
@@ -510,7 +520,7 @@ impl McpServer {
                         },
                         "master_password": {
                             "type": "string",
-                            "description": "The master password to decrypt wallet"
+                            "description": "The master password for the wallet storage"
                         }
                     },
                     "required": ["wallet_name", "master_password"]
@@ -529,7 +539,16 @@ impl McpServer {
     }
 
     async fn handle_tools_call(&self, request: JsonRpcRequest) -> JsonRpcResponse {
-        info!("Handling tools/call request");
+        let request_id = request.id.clone();
+        
+        // Safely get the tool name for logging
+        let tool_name_for_log = request.params
+            .as_ref()
+            .and_then(|p| p.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or("unknown");
+            
+        info!("Handling tools/call request for method: {}", tool_name_for_log);
 
         let params = request.params.unwrap_or(serde_json::json!({}));
         let call_request: CallToolRequest = match serde_json::from_value(params) {
@@ -538,7 +557,7 @@ impl McpServer {
                 error!("Failed to parse tools/call request: {}", e);
                 return JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
-                    id: request.id,
+                    id: request_id,
                     result: None,
                     error: Some(JsonRpcError {
                         code: -32602,
@@ -553,26 +572,32 @@ impl McpServer {
             "get_balance" => self.call_get_balance(call_request.arguments).await,
             "create_wallet" => self.call_create_wallet(call_request.arguments).await,
             "import_wallet" => self.call_import_wallet(call_request.arguments).await,
-            "get_transaction_history" => self.call_get_transaction_history(call_request.arguments).await,
+            "get_transaction_history" => {
+                self.call_get_transaction_history(call_request.arguments)
+                    .await
+            }
             "estimate_fees" => self.call_estimate_fees(call_request.arguments).await,
             "transfer_sei" => self.call_transfer_sei(call_request.arguments).await,
             "register_wallet" => self.call_register_wallet(call_request.arguments).await,
             "list_wallets" => self.call_list_wallets(call_request.arguments).await,
             "get_wallet_balance" => self.call_get_wallet_balance(call_request.arguments).await,
-            "transfer_from_wallet" => self.call_transfer_from_wallet(call_request.arguments).await,
+            "transfer_from_wallet" => {
+                self.call_transfer_from_wallet(call_request.arguments)
+                    .await
+            }
             "confirm_transaction" => self.call_confirm_transaction(call_request.arguments).await,
             "remove_wallet" => self.call_remove_wallet(call_request.arguments).await,
             _ => {
                 error!("Unknown tool: {}", call_request.name);
+                let error_result = CallToolResult {
+                    content: vec![Content::Text { text: format!("Tool not found: {}", call_request.name) }],
+                    is_error: Some(true),
+                };
                 return JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
-                    id: request.id,
-                    result: None,
-                    error: Some(JsonRpcError {
-                        code: -32601,
-                        message: format!("Tool not found: {}", call_request.name),
-                        data: None,
-                    }),
+                    id: request_id,
+                    result: Some(serde_json::to_value(error_result).unwrap()),
+                    error: None,
                 };
             }
         };
@@ -581,102 +606,94 @@ impl McpServer {
             Ok(content) => {
                 let call_result = CallToolResult {
                     content,
-                    is_error: None,
+                    is_error: Some(false),
                 };
-
                 JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
-                    id: request.id,
+                    id: request_id,
                     result: Some(serde_json::to_value(call_result).unwrap()),
                     error: None,
                 }
             }
             Err(e) => {
                 error!("Tool execution error: {}", e);
+                let error_result = CallToolResult {
+                    content: vec![Content::Text { text: e.to_string() }],
+                    is_error: Some(true),
+                };
                 JsonRpcResponse {
                     jsonrpc: "2.0".to_string(),
-                    id: request.id,
-                    result: None,
-                    error: Some(JsonRpcError {
-                        code: -32000,
-                        message: e.to_string(),
-                        data: None,
-                    }),
+                    id: request_id,
+                    result: Some(serde_json::to_value(error_result).unwrap()),
+                    error: None,
                 }
             }
         }
     }
 
+    // --- Tool Implementations ---
+
     async fn call_get_balance(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let chain_id = args.get("chain_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let address = args.get("address")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing address parameter"))?;
+        let args = arguments.context("Missing arguments")?;
+        let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
+        let address = args["address"].as_str().context("Missing address")?;
 
         let balance = self.client.get_balance(chain_id, address).await?;
-        let response = format!("Balance: {} {}", balance.amount, balance.denom);
-        
+        let response = format!(
+            "Balance for {}: {} {}",
+            address, balance.amount, balance.denom
+        );
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_create_wallet(&self, _arguments: Option<Value>) -> Result<Vec<Content>> {
         let wallet = self.client.create_wallet().await?;
-        let response = format!("Wallet created successfully!\nAddress: {}\nPrivate Key: {}\nMnemonic: {}", 
-            wallet.address, wallet.private_key, wallet.mnemonic.unwrap_or_default());
-        
+        let response = format!(
+            "Wallet created successfully!\nAddress: {}\nPrivate Key: {}\nMnemonic: {}",
+            wallet.address,
+            wallet.private_key,
+            wallet.mnemonic.unwrap_or_default()
+        );
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_import_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let mnemonic_or_key = args.get("mnemonic_or_private_key")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing mnemonic_or_private_key parameter"))?;
+        let args = arguments.context("Missing arguments")?;
+        let key_or_mnemonic = args["mnemonic_or_private_key"]
+            .as_str()
+            .context("Missing mnemonic_or_private_key")?;
 
-        let wallet = self.client.import_wallet(mnemonic_or_key).await?;
-        let response = format!("Wallet imported successfully!\nAddress: {}\nPrivate Key: {}\nMnemonic: {}", 
-            wallet.address, wallet.private_key, wallet.mnemonic.unwrap_or_default());
-        
+        let wallet = self.client.import_wallet(key_or_mnemonic).await?;
+        let response = format!(
+            "Wallet imported successfully!\nAddress: {}\nPrivate Key: {}",
+            wallet.address, wallet.private_key
+        );
         Ok(vec![Content::Text { text: response }])
     }
 
-    async fn call_get_transaction_history(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let chain_id = args.get("chain_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let address = args.get("address")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing address parameter"))?;
-        let limit = args.get("limit")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(20);
+    async fn call_get_transaction_history(
+        &self,
+        arguments: Option<Value>,
+    ) -> Result<Vec<Content>> {
+        let args = arguments.context("Missing arguments")?;
+        let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
+        let address = args["address"].as_str().context("Missing address")?;
+        let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(20);
 
-        let history = self.client.get_transaction_history(chain_id, address, limit).await?;
-        let response = format!("Transaction history for {} ({} transactions):\n{}", 
-            address, history.transactions.len(), 
-            serde_json::to_string_pretty(&history.transactions).unwrap());
-        
+        let history = self
+            .client
+            .get_transaction_history(chain_id, address, limit)
+            .await?;
+        let response = serde_json::to_string_pretty(&history.transactions)?;
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_estimate_fees(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let chain_id = args.get("chain_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let from = args.get("from")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing from parameter"))?;
-        let to = args.get("to")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing to parameter"))?;
-        let amount = args.get("amount")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing amount parameter"))?;
+        let args = arguments.context("Missing arguments")?;
+        let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
+        let from = args["from"].as_str().context("Missing from address")?;
+        let to = args["to"].as_str().context("Missing to address")?;
+        let amount = args["amount"].as_str().context("Missing amount")?;
 
         let request = crate::blockchain::models::EstimateFeesRequest {
             from: from.to_string(),
@@ -685,148 +702,144 @@ impl McpServer {
         };
 
         let fees = self.client.estimate_fees(chain_id, &request).await?;
-        let response = format!("Fee estimation:\nEstimated Gas: {}\nGas Price: {}\nTotal Fee: {} {}\nDenom: {}", 
-            fees.estimated_gas, fees.gas_price, fees.total_fee, fees.denom, fees.denom);
-        
+        let response = format!(
+            "Estimated Fees:\n  Gas: {}\n  Gas Price: {}\n  Total Fee: {} {}",
+            fees.estimated_gas, fees.gas_price, fees.total_fee, fees.denom
+        );
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_transfer_sei(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let chain_id = args.get("chain_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let to_address = args.get("to_address")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing to_address parameter"))?;
-        let amount = args.get("amount")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing amount parameter"))?;
-        let private_key = args.get("private_key")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing private_key parameter"))?;
+        let args = arguments.context("Missing arguments")?;
+        let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
+        let to_address = args["to_address"].as_str().context("Missing to_address")?;
+        let amount = args["amount"].as_str().context("Missing amount")?;
+        let private_key = args["private_key"].as_str().context("Missing private_key")?;
+        let gas_limit = args
+            .get("gas_limit")
+            .and_then(Value::as_str)
+            .map(String::from);
+        let gas_price = args
+            .get("gas_price")
+            .and_then(Value::as_str)
+            .map(String::from);
 
         let request = crate::blockchain::models::SeiTransferRequest {
             to_address: to_address.to_string(),
             amount: amount.to_string(),
             private_key: private_key.to_string(),
-            gas_limit: None,
-            gas_price: None,
+            gas_limit,
+            gas_price,
         };
 
         let result = self.client.transfer_sei(chain_id, &request).await?;
-        let response = format!("Transfer completed successfully!\nTransaction Hash: {}", result.tx_hash);
-        
+        let response = format!("Transfer successful! Transaction Hash: {}", result.tx_hash);
         Ok(vec![Content::Text { text: response }])
     }
 
-    // Enhanced wallet methods (Cast-like features)
     async fn call_register_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let wallet_name = args.get("wallet_name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing wallet_name parameter"))?;
-        let private_key = args.get("private_key")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing private_key parameter"))?;
-        let master_password = args.get("master_password")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
+        let args = arguments.context("Missing arguments")?;
+        let wallet_name = args["wallet_name"].as_str().context("Missing wallet_name")?;
+        let private_key = args["private_key"].as_str().context("Missing private_key")?;
+        let master_password = args["master_password"]
+            .as_str()
+            .context("Missing master_password")?;
+
+        // First, import the wallet to get the public address
+        let wallet_info = self.client.import_wallet(private_key).await?;
 
         // Initialize wallet storage
         crate::mcp::wallet_storage::initialize_wallet_storage(master_password)?;
 
-        // Add wallet to storage
+        // Now, add the wallet to storage with the correct public address
         crate::mcp::wallet_storage::add_wallet_to_storage(
             wallet_name.to_string(),
             private_key.to_string(),
-            "".to_string(), // We'll get the address from the private key
-            master_password
+            wallet_info.address.clone(), // Use the derived address
+            master_password,
         )?;
 
-        let response = format!("Wallet '{}' registered successfully with encryption!", wallet_name);
+        let response = format!(
+            "Wallet '{}' registered successfully! Address: {}",
+            wallet_name, wallet_info.address
+        );
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_list_wallets(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let master_password = args.get("master_password")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
+        let args = arguments.context("Missing arguments")?;
+        let master_password = args["master_password"]
+            .as_str()
+            .context("Missing master_password")?;
 
-        // Initialize wallet storage
         crate::mcp::wallet_storage::initialize_wallet_storage(master_password)?;
-
-        // List wallets from storage
         let wallets = crate::mcp::wallet_storage::list_wallets_from_storage()?;
-        
+
         if wallets.is_empty() {
-            let response = "No wallets found. Register a wallet first using register_wallet.";
-            Ok(vec![Content::Text { text: response.to_string() }])
-        } else {
-            let response = format!("Registered wallets ({}):\n{}", 
-                wallets.len(),
-                wallets.iter().map(|w| format!("- {}: {}", w.wallet_name, w.public_address)).collect::<Vec<_>>().join("\n"));
-            Ok(vec![Content::Text { text: response }])
+            return Ok(vec![Content::Text {
+                text: "No wallets found.".to_string(),
+            }]);
         }
+
+        let wallet_list = wallets
+            .iter()
+            .map(|w| format!("- Name: {}, Address: {}", w.wallet_name, w.public_address))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        Ok(vec![Content::Text {
+            text: format!("Registered Wallets:\n{}", wallet_list),
+        }])
     }
 
     async fn call_get_wallet_balance(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let wallet_name = args.get("wallet_name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing wallet_name parameter"))?;
-        let chain_id = args.get("chain_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let master_password = args.get("master_password")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
+        let args = arguments.context("Missing arguments")?;
+        let wallet_name = args["wallet_name"].as_str().context("Missing wallet_name")?;
+        let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
+        let master_password = args["master_password"]
+            .as_str()
+            .context("Missing master_password")?;
 
-        // Initialize wallet storage
         crate::mcp::wallet_storage::initialize_wallet_storage(master_password)?;
-
-        // Get wallet from storage
-        let wallet = crate::mcp::wallet_storage::get_wallet_from_storage(wallet_name, master_password)?;
-        
-        // Get balance using the wallet's address
+        let wallet =
+            crate::mcp::wallet_storage::get_wallet_from_storage(wallet_name, master_password)?;
         let balance = self.client.get_balance(chain_id, &wallet.public_address).await?;
-        let response = format!("Wallet '{}' balance: {} {}", wallet_name, balance.amount, balance.denom);
-        
+
+        let response = format!(
+            "Balance for '{}' ({}): {} {}",
+            wallet_name, wallet.public_address, balance.amount, balance.denom
+        );
         Ok(vec![Content::Text { text: response }])
     }
 
-    async fn call_transfer_from_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let wallet_name = args.get("wallet_name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing wallet_name parameter"))?;
-        let to_address = args.get("to_address")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing to_address parameter"))?;
-        let amount = args.get("amount")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing amount parameter"))?;
-        let chain_id = args.get("chain_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing chain_id parameter"))?;
-        let master_password = args.get("master_password")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
-        let gas_limit = args.get("gas_limit").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let gas_price = args.get("gas_price").and_then(|v| v.as_str()).map(|s| s.to_string());
+    async fn call_transfer_from_wallet(
+        &self,
+        arguments: Option<Value>,
+    ) -> Result<Vec<Content>> {
+        let args = arguments.context("Missing arguments")?;
+        let wallet_name = args["wallet_name"].as_str().context("Missing wallet_name")?;
+        let to_address = args["to_address"].as_str().context("Missing to_address")?;
+        let amount = args["amount"].as_str().context("Missing amount")?;
+        let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
+        let master_password = args["master_password"]
+            .as_str()
+            .context("Missing master_password")?;
+        let gas_limit = args
+            .get("gas_limit")
+            .and_then(Value::as_str)
+            .map(String::from);
+        let gas_price = args
+            .get("gas_price")
+            .and_then(Value::as_str)
+            .map(String::from);
 
-        // Initialize wallet storage
         crate::mcp::wallet_storage::initialize_wallet_storage(master_password)?;
+        let _wallet =
+            crate::mcp::wallet_storage::get_wallet_from_storage(wallet_name, master_password)?;
 
-        // Get wallet from storage
-        let wallet = crate::mcp::wallet_storage::get_wallet_from_storage(wallet_name, master_password)?;
-
-        // Generate transaction ID and confirmation code
         let transaction_id = generate_transaction_id();
         let confirmation_code = generate_confirmation_code();
 
-        // Store pending transaction
         let pending_tx = PendingTransaction {
             transaction_id: transaction_id.clone(),
             wallet_name: wallet_name.to_string(),
@@ -839,102 +852,84 @@ impl McpServer {
             created_at: Utc::now(),
         };
 
-        {
-            let mut pending_storage = PENDING_TRANSACTIONS.lock().unwrap();
-            pending_storage.insert(transaction_id.clone(), pending_tx);
-        }
+        PENDING_TRANSACTIONS
+            .lock()
+            .unwrap()
+            .insert(transaction_id.clone(), pending_tx);
 
         let response = format!(
-            "Transfer initiated!\nTransaction ID: {}\nConfirmation Code: {}\n\nTo confirm this transfer, use the confirm_transaction tool with the above details.",
+            "Transfer initiated. Please confirm with the following details:\n  Transaction ID: {}\n  Confirmation Code: {}",
             transaction_id, confirmation_code
         );
-
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_confirm_transaction(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let transaction_id = args.get("transaction_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing transaction_id parameter"))?;
-        let confirmation_code = args.get("confirmation_code")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing confirmation_code parameter"))?;
-        let master_password = args.get("master_password")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
+        let args = arguments.context("Missing arguments")?;
+        let transaction_id = args["transaction_id"]
+            .as_str()
+            .context("Missing transaction_id")?;
+        let confirmation_code = args["confirmation_code"]
+            .as_str()
+            .context("Missing confirmation_code")?;
+        let master_password = args["master_password"]
+            .as_str()
+            .context("Missing master_password")?;
 
-        // Get pending transaction
-        let pending_tx = {
-            let pending_storage = PENDING_TRANSACTIONS.lock().unwrap();
-            pending_storage.get(transaction_id).cloned()
-                .ok_or_else(|| anyhow!("Transaction not found or expired"))?
-        };
+        let pending_tx = PENDING_TRANSACTIONS
+            .lock()
+            .unwrap()
+            .remove(transaction_id)
+            .context("Transaction not found or already processed.")?;
 
-        // Verify confirmation code
         if pending_tx.confirmation_code != confirmation_code {
-            return Err(anyhow!("Invalid confirmation code"));
+            // Re-insert if code is wrong, so user can retry
+            PENDING_TRANSACTIONS
+                .lock()
+                .unwrap()
+                .insert(transaction_id.to_string(), pending_tx);
+            return Err(anyhow!("Invalid confirmation code."));
         }
 
-        // Check if transaction is expired (5 minutes)
-        let now = Utc::now();
-        if (now - pending_tx.created_at).num_minutes() > 5 {
-            // Remove expired transaction
-            {
-                let mut pending_storage = PENDING_TRANSACTIONS.lock().unwrap();
-                pending_storage.remove(transaction_id);
-            }
-            return Err(anyhow!("Transaction expired. Please initiate a new transfer."));
+        if (Utc::now() - pending_tx.created_at).num_minutes() >= 5 {
+            return Err(anyhow!("Transaction has expired. Please try again."));
         }
 
-        // Get wallet from storage
-        let wallet = crate::mcp::wallet_storage::get_wallet_from_storage(&pending_tx.wallet_name, master_password)?;
+        crate::mcp::wallet_storage::initialize_wallet_storage(master_password)?;
+        let private_key = crate::mcp::wallet_storage::get_decrypted_private_key_from_storage(
+            &pending_tx.wallet_name,
+            master_password,
+        )?;
 
-        // Execute transfer
         let request = crate::blockchain::models::SeiTransferRequest {
-            to_address: pending_tx.to_address.clone(),
-            amount: pending_tx.amount.clone(),
-            private_key: crate::mcp::wallet_storage::get_decrypted_private_key_from_storage(&pending_tx.wallet_name, master_password)?,
-            gas_limit: pending_tx.gas_limit.clone(),
-            gas_price: pending_tx.gas_price.clone(),
+            to_address: pending_tx.to_address,
+            amount: pending_tx.amount,
+            private_key,
+            gas_limit: pending_tx.gas_limit,
+            gas_price: pending_tx.gas_price,
         };
 
         let result = self.client.transfer_sei(&pending_tx.chain_id, &request).await?;
-
-        // Remove pending transaction
-        {
-            let mut pending_storage = PENDING_TRANSACTIONS.lock().unwrap();
-            pending_storage.remove(transaction_id);
-        }
-
-        let response = format!(
-            "Transfer confirmed successfully!\nTransaction Hash: {}\nFrom: {}\nTo: {}\nAmount: {}",
-            result.tx_hash, pending_tx.wallet_name, pending_tx.to_address, pending_tx.amount
-        );
-
+        let response = format!("Transfer confirmed and sent! Transaction Hash: {}", result.tx_hash);
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_remove_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
-        let args = arguments.unwrap_or(serde_json::json!({}));
-        let wallet_name = args.get("wallet_name")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing wallet_name parameter"))?;
-        let master_password = args.get("master_password")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow!("Missing master_password parameter"))?;
+        let args = arguments.context("Missing arguments")?;
+        let wallet_name = args["wallet_name"].as_str().context("Missing wallet_name")?;
+        let master_password = args["master_password"]
+            .as_str()
+            .context("Missing master_password")?;
 
-        // Initialize wallet storage
         crate::mcp::wallet_storage::initialize_wallet_storage(master_password)?;
-
-        // Remove wallet from storage
         let removed = crate::mcp::wallet_storage::remove_wallet_from_storage(wallet_name)?;
-        
+
         if removed {
-            let response = format!("Wallet '{}' removed successfully from storage.", wallet_name);
-            Ok(vec![Content::Text { text: response }])
+            Ok(vec![Content::Text {
+                text: format!("Wallet '{}' has been removed.", wallet_name),
+            }])
         } else {
-            Err(anyhow!("Wallet '{}' not found", wallet_name))
+            Err(anyhow!("Wallet '{}' not found.", wallet_name))
         }
     }
 }
