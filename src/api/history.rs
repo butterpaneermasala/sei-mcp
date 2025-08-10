@@ -47,7 +47,7 @@ pub async fn get_transaction_history_handler(
         path.chain_id, path.address
     );
 
-    let client = SeiClient::new(&config.chain_rpc_urls, config.websocket_url.clone());
+    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
 
     // Use the provided range or a default value (e.g., 2000 blocks).
     let limit = query.limit.unwrap_or(20); // Default to 20 transactions

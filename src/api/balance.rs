@@ -30,7 +30,7 @@ pub async fn get_balance_handler(
     Path(path): Path<BalancePath>,
     State(config): State<AppConfig>,
 ) -> Result<Json<BalanceOutput>, (axum::http::StatusCode, String)> {
-    let client = SeiClient::new(&config.chain_rpc_urls, config.websocket_url.clone());
+    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
 
     match client.get_balance(&path.chain_id, &path.address).await {
         Ok(balance_response) => {

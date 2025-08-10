@@ -40,7 +40,7 @@ pub async fn search_events(
     State(config): State<AppConfig>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let client = SeiClient::new(&config.chain_rpc_urls, config.websocket_url.clone());
+    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
 
     let event_query = crate::blockchain::models::EventQuery {
         contract_address: None,
@@ -78,7 +78,7 @@ pub async fn get_contract_events(
     State(config): State<AppConfig>,
     Query(query): Query<ContractEventsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let client = SeiClient::new(&config.chain_rpc_urls, config.websocket_url.clone());
+    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
 
     let event_query = crate::blockchain::models::EventQuery {
         contract_address: Some(query.contract_address.clone()),

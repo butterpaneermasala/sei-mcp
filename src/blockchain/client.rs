@@ -12,6 +12,7 @@ use crate::blockchain::services::transactions;
 use crate::blockchain::services::wallet as wallet_service;
 use anyhow::{anyhow, Result};
 use reqwest::Client as ReqwestClient;
+use tendermint_rpc::client::websocket;
 use std::collections::HashMap;
 use tendermint_rpc::{
     client::Client as TendermintClient, client::HttpClient, client::WebSocketClient, Order,
@@ -29,11 +30,11 @@ pub struct SeiClient {
 impl SeiClient {
     /// Constructor for creating a new `SeiClient`.
     /// It takes a HashMap of chain_id -> rpc_url.
-    pub fn new(rpc_urls: &HashMap<String, String>, websocket_url: String) -> Self {
+    pub fn new(rpc_urls: &HashMap<String, String>, websocket_url: &str) -> Self {
         Self {
             client: ReqwestClient::new(),
             rpc_urls: rpc_urls.clone(),
-            websocket_url,
+            websocket_url: websocket_url.to_string(),
         }
     }
 

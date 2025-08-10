@@ -42,7 +42,7 @@ pub async fn estimate_fees_handler(
         chain_id
     );
 
-    let client = SeiClient::new(&config.chain_rpc_urls, config.websocket_url.clone());
+    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
 
     // Create the request model from the input payload.
     let estimate_fees_request = EstimateFeesRequest {

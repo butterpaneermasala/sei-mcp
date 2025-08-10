@@ -49,7 +49,7 @@ pub async fn transfer_sei_handler(
         request.gas_limit,
         request.gas_price
     );
-    let client = SeiClient::new(&config.chain_rpc_urls, config.websocket_url.clone());
+    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
 
     let transfer_request = SeiTransferRequest {
         to_address: request.to_address,
