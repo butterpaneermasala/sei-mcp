@@ -1,0 +1,23 @@
+curl -X POST http://localhost:3001/request \
+-H "Content-Type: application/json" \
+-d '{"address": "address_address"}'
+
+
+.env
+
+
+# The port the faucet server will run on
+PORT=3001
+
+# The private key of the faucet's wallet (hex-encoded, without the "0x" prefix)
+# IMPORTANT: Keep this key secure and do not commit it to version control.
+FAUCET_PRIVATE_KEY="PRIVATE_KEY"
+
+# The RPC endpoint URL for the Sei network
+SEI_RPC_URL="https://rpc.atlantic-2.seinetwork.io/"
+
+# The amount of usei (micro-SEI) to send per request (1,000,000 usei = 1 SEI)
+FAUCET_AMOUNT_USEI="100000"
+
+# The cooldown period in hours before a user (IP or address) can request again
+COOLDOWN_HOURS=24
