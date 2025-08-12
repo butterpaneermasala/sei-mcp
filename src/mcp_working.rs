@@ -159,7 +159,7 @@ impl McpServer {
 
     pub async fn run(&self) -> Result<()> {
         tracing::info!("Starting MCP server...");
-        
+
         let stdin = tokio::io::stdin();
         let stdout = tokio::io::stdout();
         let mut reader = BufReader::new(stdin);
@@ -177,7 +177,7 @@ impl McpServer {
                     }
 
                     debug!("Received raw message: {:?}", buffer.trim());
-                    
+
                     if let Some(response) = self.handle_message(&buffer).await {
                         let clean_response = response.trim();
                         writer.write_all(clean_response.as_bytes()).await?;
@@ -237,7 +237,7 @@ impl McpServer {
             }
         }
     }
-    
+
     // *** NEW FUNCTION: To handle notifications without sending a response ***
     async fn handle_notification(&self, request: JsonRpcRequest) {
         match request.method.as_str() {
@@ -250,7 +250,6 @@ impl McpServer {
             }
         }
     }
-
 
     async fn handle_request(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         match request.method.as_str() {
@@ -575,6 +574,77 @@ impl McpServer {
                     "required": ["wallet_name", "master_password"]
                 }),
             },
+            Tool {
+                name: "search_events".to_string(),
+                description: Some("Search for past blockchain events based on various criteria like event type, attributes, and block range".to_string()),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "event_type": {
+                            "type": "string",
+                            "description": "The type of event to search for (e.g., 'transfer', 'wasm')"
+                        },
+                        "attribute_key": {
+                            "type": "string",
+                            "description": "The attribute key to filter by (e.g., 'action', 'recipient')"
+                        },
+                        "attribute_value": {
+                            "type": "string",
+                            "description": "The attribute value to filter by (e.g., 'transfer', 'sei1abcd...')"
+                        },
+                        "from_block": {
+                            "type": "integer",
+                            "description": "Start block height for the search range"
+                        },
+                        "to_block": {
+                            "type": "integer",
+                            "description": "End block height for the search range"
+                        },
+                        "page": {
+                            "type": "integer",
+                            "description": "Page number for pagination (default: 1)"
+                        },
+                        "per_page": {
+                            "type": "integer",
+                            "description": "Number of results per page (default: 30, max: 100)"
+                        }
+                    }
+                }),
+            },
+            Tool {
+                name: "get_contract_events".to_string(),
+                description: Some("Get events from a specific smart contract, optionally filtered by event type and block range".to_string()),
+                input_schema: serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "contract_address": {
+                            "type": "string",
+                            "description": "The address of the smart contract to get events from"
+                        },
+                        "event_type": {
+                            "type": "string",
+                            "description": "Optional event type to filter by (e.g., 'SwapExecuted')"
+                        },
+                        "from_block": {
+                            "type": "integer",
+                            "description": "Start block height for the search range"
+                        },
+                        "to_block": {
+                            "type": "integer",
+                            "description": "End block height for the search range"
+                        },
+                        "page": {
+                            "type": "integer",
+                            "description": "Page number for pagination (default: 1)"
+                        },
+                        "per_page": {
+                            "type": "integer",
+                            "description": "Number of results per page (default: 30, max: 100)"
+                        }
+                    },
+                    "required": ["contract_address"]
+                }),
+            },
         ];
 
         let result = ListToolsResult { tools };
@@ -589,15 +659,19 @@ impl McpServer {
 
     async fn handle_tools_call(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         let request_id = request.id.clone();
-        
+
         // Safely get the tool name for logging
-        let tool_name_for_log = request.params
+        let tool_name_for_log = request
+            .params
             .as_ref()
             .and_then(|p| p.get("name"))
             .and_then(|n| n.as_str())
             .unwrap_or("unknown");
-            
-        info!("Handling tools/call request for method: {}", tool_name_for_log);
+
+        info!(
+            "Handling tools/call request for method: {}",
+            tool_name_for_log
+        );
 
         let params = request.params.unwrap_or(serde_json::json!({}));
         let call_request: CallToolRequest = match serde_json::from_value(params) {
@@ -630,16 +704,17 @@ impl McpServer {
             "register_wallet" => self.call_register_wallet(call_request.arguments).await,
             "list_wallets" => self.call_list_wallets(call_request.arguments).await,
             "get_wallet_balance" => self.call_get_wallet_balance(call_request.arguments).await,
-            "transfer_from_wallet" => {
-                self.call_transfer_from_wallet(call_request.arguments)
-                    .await
-            }
+            "transfer_from_wallet" => self.call_transfer_from_wallet(call_request.arguments).await,
             "confirm_transaction" => self.call_confirm_transaction(call_request.arguments).await,
             "remove_wallet" => self.call_remove_wallet(call_request.arguments).await,
+            "search_events" => self.call_search_events(call_request.arguments).await,
+            "get_contract_events" => self.call_get_contract_events(call_request.arguments).await,
             _ => {
                 error!("Unknown tool: {}", call_request.name);
                 let error_result = CallToolResult {
-                    content: vec![Content::Text { text: format!("Tool not found: {}", call_request.name) }],
+                    content: vec![Content::Text {
+                        text: format!("Tool not found: {}", call_request.name),
+                    }],
                     is_error: Some(true),
                 };
                 return JsonRpcResponse {
@@ -667,7 +742,9 @@ impl McpServer {
             Err(e) => {
                 error!("Tool execution error: {}", e);
                 let error_result = CallToolResult {
-                    content: vec![Content::Text { text: e.to_string() }],
+                    content: vec![Content::Text {
+                        text: e.to_string(),
+                    }],
                     is_error: Some(true),
                 };
                 JsonRpcResponse {
@@ -720,10 +797,7 @@ impl McpServer {
         Ok(vec![Content::Text { text: response }])
     }
 
-    async fn call_get_transaction_history(
-        &self,
-        arguments: Option<Value>,
-    ) -> Result<Vec<Content>> {
+    async fn call_get_transaction_history(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.context("Missing arguments")?;
         let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
         let address = args["address"].as_str().context("Missing address")?;
@@ -763,7 +837,9 @@ impl McpServer {
         let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
         let to_address = args["to_address"].as_str().context("Missing to_address")?;
         let amount = args["amount"].as_str().context("Missing amount")?;
-        let private_key = args["private_key"].as_str().context("Missing private_key")?;
+        let private_key = args["private_key"]
+            .as_str()
+            .context("Missing private_key")?;
         let gas_limit = args
             .get("gas_limit")
             .and_then(Value::as_str)
@@ -788,8 +864,12 @@ impl McpServer {
 
     async fn call_register_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.context("Missing arguments")?;
-        let wallet_name = args["wallet_name"].as_str().context("Missing wallet_name")?;
-        let private_key = args["private_key"].as_str().context("Missing private_key")?;
+        let wallet_name = args["wallet_name"]
+            .as_str()
+            .context("Missing wallet_name")?;
+        let private_key = args["private_key"]
+            .as_str()
+            .context("Missing private_key")?;
         let master_password = args["master_password"]
             .as_str()
             .context("Missing master_password")?;
@@ -843,7 +923,9 @@ impl McpServer {
 
     async fn call_get_wallet_balance(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.context("Missing arguments")?;
-        let wallet_name = args["wallet_name"].as_str().context("Missing wallet_name")?;
+        let wallet_name = args["wallet_name"]
+            .as_str()
+            .context("Missing wallet_name")?;
         let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
         let master_password = args["master_password"]
             .as_str()
@@ -852,7 +934,10 @@ impl McpServer {
         crate::mcp::wallet_storage::initialize_wallet_storage(master_password)?;
         let wallet =
             crate::mcp::wallet_storage::get_wallet_from_storage(wallet_name, master_password)?;
-        let balance = self.client.get_balance(chain_id, &wallet.public_address).await?;
+        let balance = self
+            .client
+            .get_balance(chain_id, &wallet.public_address)
+            .await?;
 
         let response = format!(
             "Balance for '{}' ({}): {} {}",
@@ -861,12 +946,11 @@ impl McpServer {
         Ok(vec![Content::Text { text: response }])
     }
 
-    async fn call_transfer_from_wallet(
-        &self,
-        arguments: Option<Value>,
-    ) -> Result<Vec<Content>> {
+    async fn call_transfer_from_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.context("Missing arguments")?;
-        let wallet_name = args["wallet_name"].as_str().context("Missing wallet_name")?;
+        let wallet_name = args["wallet_name"]
+            .as_str()
+            .context("Missing wallet_name")?;
         let to_address = args["to_address"].as_str().context("Missing to_address")?;
         let amount = args["amount"].as_str().context("Missing amount")?;
         let chain_id = args["chain_id"].as_str().context("Missing chain_id")?;
@@ -958,14 +1042,22 @@ impl McpServer {
             gas_price: pending_tx.gas_price,
         };
 
-        let result = self.client.transfer_sei(&pending_tx.chain_id, &request).await?;
-        let response = format!("Transfer confirmed and sent! Transaction Hash: {}", result.tx_hash);
+        let result = self
+            .client
+            .transfer_sei(&pending_tx.chain_id, &request)
+            .await?;
+        let response = format!(
+            "Transfer confirmed and sent! Transaction Hash: {}",
+            result.tx_hash
+        );
         Ok(vec![Content::Text { text: response }])
     }
 
     async fn call_remove_wallet(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
         let args = arguments.context("Missing arguments")?;
-        let wallet_name = args["wallet_name"].as_str().context("Missing wallet_name")?;
+        let wallet_name = args["wallet_name"]
+            .as_str()
+            .context("Missing wallet_name")?;
         let master_password = args["master_password"]
             .as_str()
             .context("Missing master_password")?;
@@ -980,5 +1072,85 @@ impl McpServer {
         } else {
             Err(anyhow!("Wallet '{}' not found.", wallet_name))
         }
+    }
+
+    async fn call_search_events(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
+        let args = arguments.context("Missing arguments")?;
+
+        let event_query = crate::blockchain::models::EventQuery {
+            contract_address: None,
+            event_type: args
+                .get("event_type")
+                .and_then(Value::as_str)
+                .map(String::from),
+            attribute_key: args
+                .get("attribute_key")
+                .and_then(Value::as_str)
+                .map(String::from),
+            attribute_value: args
+                .get("attribute_value")
+                .and_then(Value::as_str)
+                .map(String::from),
+            from_block: args.get("from_block").and_then(Value::as_u64),
+            to_block: args.get("to_block").and_then(Value::as_u64),
+        };
+
+        let page = args.get("page").and_then(Value::as_u64).unwrap_or(1) as u32;
+        let per_page = args.get("per_page").and_then(Value::as_u64).unwrap_or(30) as u8;
+
+        let result = crate::blockchain::services::event::search_events(
+            &self.client,
+            event_query,
+            page,
+            per_page,
+        )
+        .await?;
+
+        let response = format!(
+            "Found {} events:\n{}",
+            result.total_count,
+            serde_json::to_string_pretty(&result.txs)?
+        );
+
+        Ok(vec![Content::Text { text: response }])
+    }
+
+    async fn call_get_contract_events(&self, arguments: Option<Value>) -> Result<Vec<Content>> {
+        let args = arguments.context("Missing arguments")?;
+        let contract_address = args["contract_address"]
+            .as_str()
+            .context("Missing contract_address")?;
+
+        let event_query = crate::blockchain::models::EventQuery {
+            contract_address: Some(contract_address.to_string()),
+            event_type: args
+                .get("event_type")
+                .and_then(Value::as_str)
+                .map(String::from),
+            attribute_key: None,
+            attribute_value: None,
+            from_block: args.get("from_block").and_then(Value::as_u64),
+            to_block: args.get("to_block").and_then(Value::as_u64),
+        };
+
+        let page = args.get("page").and_then(Value::as_u64).unwrap_or(1) as u32;
+        let per_page = args.get("per_page").and_then(Value::as_u64).unwrap_or(30) as u8;
+
+        let result = crate::blockchain::services::event::search_events(
+            &self.client,
+            event_query,
+            page,
+            per_page,
+        )
+        .await?;
+
+        let response = format!(
+            "Found {} events for contract {}:\n{}",
+            result.total_count,
+            contract_address,
+            serde_json::to_string_pretty(&result.txs)?
+        );
+
+        Ok(vec![Content::Text { text: response }])
     }
 }

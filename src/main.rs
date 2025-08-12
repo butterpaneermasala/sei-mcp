@@ -37,7 +37,6 @@ fn init_tracing(is_mcp_mode: bool) {
     });
 }
 
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Check if we should run as MCP server or HTTP server
@@ -47,7 +46,6 @@ async fn main() -> Result<()> {
     // Setup logging
     init_tracing(is_mcp_mode);
 
-
     // Load .env file
     dotenvy::dotenv().ok();
     let app_config = config::AppConfig::from_env()?;
@@ -56,10 +54,7 @@ async fn main() -> Result<()> {
         // Run as MCP server
         tracing::info!("Starting as MCP server...");
         let mcp_server = mcp_working::McpServer::new(app_config);
-        mcp_server
-            .run()
-            .await
-            .context("Failed to run MCP server")?;
+        mcp_server.run().await.context("Failed to run MCP server")?;
     } else {
         // Run as HTTP server
         tracing::info!("Starting as HTTP server...");

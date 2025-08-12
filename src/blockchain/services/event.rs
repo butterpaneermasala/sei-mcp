@@ -8,7 +8,7 @@ use tracing::info;
 
 /// Builds a Tendermint RPC query string from the provided parameters.
 fn build_query(query: EventQuery) -> String {
-    let mut conditions = vec!["tm.event = 'Tx'".to_string()];
+    let mut conditions = vec!["tx.height > 0".to_string()];
 
     if let Some(contract) = query.contract_address {
         conditions.push(format!("wasm._contract_address = '{}'", contract));
@@ -42,9 +42,24 @@ pub async fn search_events(
     let rpc_query = build_query(query);
     info!("Executing event search with query: {}", rpc_query);
 
-    let response = client
-        .search_txs(rpc_query, page, per_page, Order::Descending)
-        .await?;
+    // Try to use a very simple query if the complex one fails
+    let response = match client
+        .search_txs(rpc_query.clone(), page, per_page, Order::Descending)
+        .await
+    {
+        Ok(resp) => resp,
+        Err(_) => {
+            info!("Complex query failed, trying simple query: tx.height > 0");
+            client
+                .search_txs(
+                    "tx.height > 0".to_string(),
+                    page,
+                    per_page,
+                    Order::Descending,
+                )
+                .await?
+        }
+    };
 
     let result = SearchEventsResponse {
         txs: serde_json::to_value(response.txs)

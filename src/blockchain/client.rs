@@ -12,8 +12,8 @@ use crate::blockchain::services::transactions;
 use crate::blockchain::services::wallet as wallet_service;
 use anyhow::{anyhow, Result};
 use reqwest::Client as ReqwestClient;
-use tendermint_rpc::client::websocket;
 use std::collections::HashMap;
+use tendermint_rpc::client::websocket;
 use tendermint_rpc::{
     client::Client as TendermintClient, client::HttpClient, client::WebSocketClient, Order,
 };
@@ -71,10 +71,10 @@ impl SeiClient {
         address: &str,
         limit: u64,
     ) -> Result<TransactionHistoryResponse> {
-        // This implementation is now specific to the 'sei' chain
-        if chain_id != "sei" {
+        // Support both 'sei' and 'sei-testnet' chains
+        if chain_id != "sei" && chain_id != "sei-testnet" {
             return Err(anyhow!(
-                "Transaction history via Seistream API is only supported for the 'sei' chain."
+                "Transaction history via Seistream API is only supported for 'sei' and 'sei-testnet' chains."
             ));
         }
         // The rpc_url is no longer needed for the new history service
@@ -108,11 +108,12 @@ impl SeiClient {
         per_page: u8,
         order: Order,
     ) -> Result<tendermint_rpc::endpoint::tx_search::Response, anyhow::Error> {
-        // Get the RPC URL for the tendermint client
+        // Try to get RPC URL for either 'sei' or 'sei-testnet' chain
         let rpc_url = self
             .rpc_urls
             .get("sei")
-            .ok_or_else(|| anyhow!("No RPC URL found for 'sei' chain"))?;
+            .or_else(|| self.rpc_urls.get("sei-testnet"))
+            .ok_or_else(|| anyhow!("No RPC URL found for 'sei' or 'sei-testnet' chain"))?;
 
         let http_client = HttpClient::new(rpc_url.as_str())
             .map_err(|e| anyhow!("Failed to create HTTP client: {}", e))?;
