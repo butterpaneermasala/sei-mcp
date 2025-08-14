@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "sei-mcp": {
-      "command": "/home/satya/hackathons/seii/sei-mcp-server-rs/target/debug/sei-mcp-server-rs",
+    "sei-mcp-release": {
+      "command": "/home/satya/hackathons/seii/sei-mcp-server-rs/target/release/sei-mcp-server-rs",
       "args": ["--mcp"],
       "cwd": "/home/satya/hackathons/seii/sei-mcp-server-rs",
       "env": {

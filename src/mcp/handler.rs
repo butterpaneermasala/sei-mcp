@@ -21,9 +21,30 @@ use tracing::{error, info};
 
 // Normalize common chain_id aliases users might pass via MCP
 pub fn normalize_chain_id(input: &str) -> String {
-    let mut s = input.trim().to_string();
-    if s == "sei-testnet" { s = "sei-evm-testnet".to_string(); }
-    if s == "sei-mainnet" { s = "sei-evm-mainnet".to_string(); }
+    // Normalize case and separators first
+    let mut s = input.trim().to_lowercase();
+    // Replace common separators with '-'
+    s = s.replace([' ', '_'], "-");
+    // Collapse multiple dashes
+    while s.contains("--") { s = s.replace("--", "-"); }
+
+    // Common aliases for EVM networks
+    // Accept: sei-testnet, sei-evm-testnet, sei evm testnet, sei_testnet, etc.
+    if s == "sei-testnet" || s == "sei-evm-testnet" || s == "sei-evm-test" || s == "sei-evm-t" || s == "sei-evm" {
+        return "sei-evm-testnet".to_string();
+    }
+    if s == "sei-mainnet" || s == "sei-evm-mainnet" || s == "sei-evm-main" || s == "sei-main" {
+        return "sei-evm-mainnet".to_string();
+    }
+
+    // Native aliases
+    if s == "atlantic-2" || s == "sei-native-testnet" || s == "sei-native" || s == "sei-testnet-native" {
+        return "atlantic-2".to_string();
+    }
+    if s == "pacific-1" || s == "sei-native-mainnet" || s == "sei-mainnet-native" {
+        return "pacific-1".to_string();
+    }
+
     s
 }
 
@@ -43,6 +64,25 @@ fn get_required_arg<T: DeserializeOwned>(
     })
 }
 
+// Helper: produce a result Value that always contains a text content array
+// and preserves structured data for JSON-friendly clients.
+fn make_texty_result(text: String, payload: Value) -> Value {
+    let content = json!([{ "type": "text", "text": text }]);
+    match payload {
+        Value::Object(mut map) => {
+            // Do not overwrite if caller already set content
+            if !map.contains_key("content") {
+                map.insert("content".into(), content);
+            }
+            Value::Object(map)
+        }
+        other => json!({
+            "data": other,
+            "content": content
+        }),
+    }
+}
+
 /// This is the main dispatcher for all incoming MCP requests.
 pub async fn handle_mcp_request(req: Request, state: AppState) -> Option<Response> {
     info!("Handling MCP request for method: {}", req.method);
@@ -55,6 +95,21 @@ pub async fn handle_mcp_request(req: Request, state: AppState) -> Option<Respons
         "initialize" => handle_initialize(&req),
         "tools/list" => handle_tools_list(&req),
         "tools/call" => handle_tool_call(req, state).await,
+        // Convenience aliases to support direct method calls from CLI
+        // They are rewritten into tools/call internally to reuse the same logic
+        "get_balance" | "request_faucet" | "transfer_evm" | "transfer_sei" | "transfer_nft_evm" | "search_events" => {
+            let name = req.method.clone();
+            let wrapped = Request {
+                jsonrpc: req.jsonrpc.clone(),
+                id: req.id.clone(),
+                method: "tools/call".to_string(),
+                params: Some(json!({
+                    "name": name,
+                    "arguments": req.params.clone().unwrap_or_else(|| json!({}))
+                })),
+            };
+            handle_tool_call(wrapped, state).await
+        }
         _ => Response::error(
             req.id,
             error_codes::METHOD_NOT_FOUND,
@@ -105,13 +160,38 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                 let is_native = matches!(chain_type, ChainType::Native);
                 let balance = crate::blockchain::services::balance::get_balance(&client, rpc_url, &address, is_native).await
                     .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
-                Ok(Response::success(req_id.clone(), json!({"balance": balance})))
+                let debug_info = json!({
+                    "chain_id_normalized": chain_id,
+                    "rpc_url": rpc_url,
+                    "chain_type": if is_native { "native" } else { "evm" }
+                });
+                let balance_text = match serde_json::to_string(&balance) {
+                    Ok(s) => format!("Balance: {}", s),
+                    Err(_) => "Balance fetched".to_string(),
+                };
+                // Return plain JSON so MCP clients can parse result directly
+                Ok(Response::success(
+                    req_id.clone(),
+                    json!({
+                        // Plain fields for Windsurf and generic JSON-RPC clients
+                        "balance": balance,
+                        "debug": debug_info,
+                        "message": balance_text,
+                        // Text content for clients that expect a content array
+                        "content": [
+                            { "type": "text", "text": balance_text }
+                        ]
+                    })
+                ))
             }).await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
         "create_wallet" => match state.sei_client.create_wallet().await {
-            Ok(wallet) => Response::success(req_id.clone(), json!({ "content": [{ "type": "json", "json": wallet }]})),
+            Ok(wallet) => {
+                let summary = format!("Created wallet {}", wallet.address);
+                Response::success(req_id.clone(), make_texty_result(summary, json!(wallet)))
+            }
             Err(e) => Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()),
         },
 
@@ -120,7 +200,8 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                 let key = get_required_arg::<String>(args, "mnemonic_or_private_key", req_id)?;
                 let wallet = state.sei_client.import_wallet(&key).await
                     .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
-                Ok(Response::success(req_id.clone(), json!({ "content": [{ "type": "json", "json": wallet }] })))
+                let summary = format!("Imported wallet {}", wallet.address);
+                Ok(Response::success(req_id.clone(), make_texty_result(summary, json!(wallet))))
             }).await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
@@ -143,7 +224,9 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                 };
                 let tx_hash = crate::blockchain::services::faucet::send_faucet_tokens(&state.config, &address, &state.nonce_manager, rpc_url, &chain_id).await
                     .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
-                Ok(Response::success(req_id.clone(), json!({ "transaction_hash": tx_hash })))
+                let payload = json!({ "transaction_hash": tx_hash });
+                let summary = format!("Faucet sent tokens: tx {}", tx_hash);
+                Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
             }).await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
@@ -161,9 +244,18 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                         let to_block = args.get("to_block").and_then(|v| v.as_str());
                         let topic0 = args.get("topic0").and_then(|v| v.as_str());
 
+                        // Helper to normalize block tags: accept hex tags (latest/earliest/pending) or decimal block numbers.
+                        fn normalize_block_tag(tag: &str) -> String {
+                            let t = tag.trim();
+                            if t == "latest" || t == "earliest" || t == "pending" || t.starts_with("0x") { return t.to_string(); }
+                            // Try parse as decimal number
+                            if let Ok(n) = u64::from_str_radix(t, 10) { return format!("0x{:x}", n); }
+                            t.to_string()
+                        }
+
                         let mut filter = serde_json::json!({ "address": address });
-                        if let Some(fb) = from_block { filter["fromBlock"] = serde_json::Value::String(fb.to_string()); }
-                        if let Some(tb) = to_block { filter["toBlock"] = serde_json::Value::String(tb.to_string()); }
+                        if let Some(fb) = from_block { filter["fromBlock"] = serde_json::Value::String(normalize_block_tag(fb)); }
+                        if let Some(tb) = to_block { filter["toBlock"] = serde_json::Value::String(normalize_block_tag(tb)); }
                         if let Some(t0) = topic0 { filter["topics"] = serde_json::json!([t0]); }
 
                         let payload = serde_json::json!({
@@ -180,7 +272,12 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                         if let Some(err) = resp.get("error") {
                             return Err(Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, format!("RPC error: {}", err)));
                         }
-                        Ok(Response::success(req_id.clone(), resp["result"].clone()))
+                        // Wrap logs with a summary text
+                        let logs = resp["result"].clone();
+                        let count = logs.as_array().map(|a| a.len()).unwrap_or(0);
+                        let payload = json!({ "logs": logs });
+                        let summary = format!("Found {} log(s)", count);
+                        Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
                     }
                     ChainType::Native => {
                         Err(Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, "Native event search not implemented yet".into()))
@@ -216,7 +313,8 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                     .send_transaction(&chain_id, &private_key, tx_request, &state.nonce_manager)
                     .await
                     .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
-                Ok(Response::success(req_id.clone(), json!(response)))
+                let summary = match serde_json::to_string(&response) { Ok(s) => format!("EVM tx sent: {}", s), Err(_) => "EVM tx sent".to_string() };
+                Ok(Response::success(req_id.clone(), make_texty_result(summary, json!(response))))
             }).await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
@@ -241,8 +339,9 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                     &to_address,
                     amount,
                 ).await.map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
-
-                Ok(Response::success(req_id.clone(), json!({ "transaction_hash": tx_hash })))
+                let payload = json!({ "transaction_hash": tx_hash });
+                let summary = format!("SEI bank tx: {}", tx_hash);
+                Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
             }).await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
@@ -322,7 +421,9 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                             Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, "Failed to save wallet to disk".into())
                         })?;
                 
-                Ok(Response::success(req_id.clone(), json!({ "status": "success", "wallet_name": wallet_name })))
+                let payload = json!({ "status": "success", "wallet_name": wallet_name });
+                let summary = format!("Registered wallet {}", wallet_name);
+                Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
             }).await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
@@ -335,7 +436,10 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                     return Err(Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, "Invalid master password".into()));
                 }
                 let wallets = storage.list_wallets();
-                Ok(Response::success(req_id.clone(), json!({ "wallets": wallets })))
+                let count = wallets.len();
+                let payload = json!({ "wallets": wallets });
+                let summary = format!("{} wallet(s)", count);
+                Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
             }).await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
@@ -361,8 +465,8 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
 
                 let response = state.sei_client.send_transaction(&chain_id, &private_key, tx_request, &state.nonce_manager).await
                     .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
-                
-                Ok(Response::success(req_id.clone(), json!(response)))
+                let summary = match serde_json::to_string(&response) { Ok(s) => format!("Transfer sent: {}", s), Err(_) => "Transfer sent".to_string() };
+                Ok(Response::success(req_id.clone(), make_texty_result(summary, json!(response))))
             }).await;
             res.unwrap_or_else(|err_resp| err_resp)
         }

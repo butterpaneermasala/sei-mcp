@@ -48,7 +48,8 @@ pub async fn get_balance(client: &Client, rpc_url: &str, address: &str, is_nativ
             });
         Ok(BalanceResponse {
             amount: amount_decimal,
-            denom: "usei".to_string(),
+            // For EVM chains, the native balance is returned in wei
+            denom: "wei".to_string(),
         })
     }
 }
