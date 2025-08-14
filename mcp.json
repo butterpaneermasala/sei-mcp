@@ -1,21 +1,15 @@
 {
   "mcpServers": {
-    "sei-mcp-server": {
-      "command": "/home/satya/hackathons/seii/sei-mcp-server-rs/target/release/sei-mcp-server-rs",
+    "sei-mcp": {
+      "command": "/home/satya/hackathons/seii/sei-mcp-server-rs/target/debug/sei-mcp-server-rs",
       "args": ["--mcp"],
       "cwd": "/home/satya/hackathons/seii/sei-mcp-server-rs",
       "env": {
-        "NO_COLOR": "1",
-        "RUST_LOG_STYLE": "never",
-        "CHAIN_RPC_URLS": "{\"sei-testnet\":\"https://sei-testnet.drpc.org\"}",
-        "PORT": "8080",
-        "WEBSOCKET_URL": "wss://rpc.atlantic-2.seinetwork.io/websocket",
-        "FAUCET_PRIVATE_KEY": "PrivateKey",
-        "FAUCET_AMOUNT_USEI": "100000",
-        "FAUCET_DENOM": "usei",
-        "FAUCET_PREFIX": "sei",
-        "FAUCET_GAS_LIMIT": "200000",
-        "FAUCET_FEE_AMOUNT": "5000"
+        "CHAIN_RPC_URLS": "{\"sei-evm-testnet\":\"https://evm-rpc-testnet.sei-apis.com\",\"atlantic-2\":\"https://rpc-testnet.sei-apis.com\",\"sei-evm-mainnet\":\"https://evm-rpc.sei-apis.com\",\"pacific-1\":\"https://sei-rpc.polkachu.com\"}",
+        "MCP_MODE": "1",
+        "FAUCET_ADDRESS": "sei1m07ecurtmj793dq4c0p7x9e4ezmwtj3nrj836k",
+        "NATIVE_CHAIN_ID": "atlantic-2",
+        "NATIVE_BECH32_HRP": "sei"
       }
     }
   }

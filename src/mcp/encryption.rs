@@ -1,99 +1,100 @@
+// src/mcp/encryption.rs
+
 use aes_gcm::{
-    aead::{Aead, KeyInit},
-    Aes256Gcm, Key, Nonce,
+    aead::{Aead, OsRng},
+    Aes256Gcm, Key, KeyInit, Nonce,
+    AeadCore, // FIX: Import the AeadCore trait to get access to generate_nonce.
 };
 use anyhow::{anyhow, Result};
-use argon2::{Argon2, PasswordHasher};
-use argon2::password_hash::{rand_core::OsRng, SaltString};
-use base64::{Engine as _, engine::general_purpose};
-use rand::Rng;
+use argon2::{
+    password_hash::{PasswordHasher, SaltString},
+    Argon2,
+};
+use base64::{engine::general_purpose, Engine as _};
 
-pub struct EncryptionManager {
-    cipher: Aes256Gcm,
-}
+// FIX: This struct holds the key derived from the master password.
+// It is created once per password verification.
+pub struct EncryptionKey(Key<Aes256Gcm>);
 
-impl EncryptionManager {
-    pub fn new(master_password: &str) -> Result<Self> {
-        // Derive encryption key from master password using Argon2
-        let salt = SaltString::generate(&mut OsRng);
+impl EncryptionKey {
+    /// Derives a 256-bit key from a password and salt using Argon2.
+    pub fn new(password: &str, salt: &SaltString) -> Result<Self> {
         let argon2 = Argon2::default();
-        let password_hash = argon2
-            .hash_password(master_password.as_bytes(), &salt)
-            .map_err(|e| anyhow!("Password hashing failed: {}", e))?;
+        let key_hash = argon2
+            .hash_password(password.as_bytes(), salt)
+            .map_err(|e| anyhow!("Argon2 key derivation failed: {}", e))?;
 
-        // Use the hash as the encryption key (first 32 bytes for AES-256)
-        let key_bytes = general_purpose::STANDARD
-            .decode(password_hash.to_string().as_bytes())
-            .unwrap_or_else(|_| password_hash.to_string().as_bytes().to_vec());
-        
-        let key = Key::<Aes256Gcm>::from_slice(&key_bytes[..32]);
-        let cipher = Aes256Gcm::new(key);
+        // Use the raw hash output as the key.
+        let key_bytes = key_hash.hash.ok_or_else(|| anyhow!("Failed to get raw hash from Argon2"))?;
 
-        Ok(Self { cipher })
+        Ok(Self(Key::<Aes256Gcm>::clone_from_slice(key_bytes.as_bytes())))
     }
 
-    pub fn encrypt_private_key(&self, private_key: &str) -> Result<String> {
-        let nonce_bytes = rand::thread_rng().gen::<[u8; 12]>();
-        let nonce = Nonce::from_slice(&nonce_bytes);
+    /// Encrypts data using the derived key. A new random nonce is generated for each encryption.
+    pub fn encrypt(&self, plaintext: &str) -> Result<Vec<u8>> {
+        let cipher = Aes256Gcm::new(&self.0);
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng); // Generate a random 96-bit nonce.
 
-        let encrypted = self
-            .cipher
-            .encrypt(nonce, private_key.as_bytes())
+        let ciphertext = cipher
+            .encrypt(&nonce, plaintext.as_bytes())
             .map_err(|e| anyhow!("Encryption failed: {}", e))?;
 
-        // Combine nonce and encrypted data, then base64 encode
-        let mut combined = Vec::new();
-        combined.extend_from_slice(&nonce_bytes);
-        combined.extend_from_slice(&encrypted);
-
-        Ok(general_purpose::STANDARD.encode(combined))
+        // Prepend the nonce to the ciphertext. [ nonce (12 bytes) | ciphertext ]
+        let mut result = nonce.to_vec();
+        result.extend_from_slice(&ciphertext);
+        Ok(result)
     }
 
-    pub fn decrypt_private_key(&self, encrypted_data: &str) -> Result<String> {
-        let combined = general_purpose::STANDARD
-            .decode(encrypted_data)
-            .map_err(|e| anyhow!("Base64 decode failed: {}", e))?;
-
-        if combined.len() < 12 {
-            return Err(anyhow!("Invalid encrypted data format"));
+    /// Decrypts data using the derived key. The nonce is extracted from the ciphertext itself.
+    pub fn decrypt(&self, encrypted_data: &[u8]) -> Result<String> {
+        if encrypted_data.len() < 12 {
+            return Err(anyhow!("Invalid encrypted data: too short to contain a nonce"));
         }
 
-        let nonce_bytes: [u8; 12] = combined[..12].try_into().unwrap();
-        let nonce = Nonce::from_slice(&nonce_bytes);
-        let encrypted = &combined[12..];
+        let cipher = Aes256Gcm::new(&self.0);
+        let (nonce_bytes, ciphertext) = encrypted_data.split_at(12);
+        let nonce = Nonce::from_slice(nonce_bytes);
 
-        let decrypted = self
-            .cipher
-            .decrypt(nonce, encrypted)
-            .map_err(|e| anyhow!("Decryption failed: {}", e))?;
+        let decrypted_bytes = cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| anyhow!("Decryption failed (likely incorrect password): {}", e))?;
 
-        String::from_utf8(decrypted)
-            .map_err(|e| anyhow!("Invalid UTF-8 in decrypted data: {}", e))
+        String::from_utf8(decrypted_bytes)
+            .map_err(|e| anyhow!("Failed to decode decrypted bytes to UTF-8: {}", e))
     }
 }
 
-// Global encryption manager (in production, this should be properly initialized)
-lazy_static::lazy_static! {
-    static ref ENCRYPTION_MANAGER: std::sync::Mutex<Option<EncryptionManager>> = std::sync::Mutex::new(None);
+
+// FIX: The main encryption function now handles salt generation and storage.
+// The output format is "salt.encrypted_payload", both Base64 encoded.
+pub fn encrypt_private_key(private_key: &str, master_password: &str) -> Result<String> {
+    let salt = SaltString::generate(&mut OsRng);
+
+    let key = EncryptionKey::new(master_password, &salt)?;
+    let encrypted_payload = key.encrypt(private_key)?;
+
+    let salt_b64 = general_purpose::STANDARD_NO_PAD.encode(salt.as_str());
+    let payload_b64 = general_purpose::STANDARD_NO_PAD.encode(encrypted_payload);
+
+    Ok(format!("{}.{}", salt_b64, payload_b64))
 }
 
-pub fn initialize_encryption(master_password: &str) -> Result<()> {
-    let manager = EncryptionManager::new(master_password)?;
-    let mut global_manager = ENCRYPTION_MANAGER.lock().unwrap();
-    *global_manager = Some(manager);
-    Ok(())
-}
+// FIX: The decryption function now parses the salt from the input string.
+pub fn decrypt_private_key(encrypted_string: &str, master_password: &str) -> Result<String> {
+    let parts: Vec<&str> = encrypted_string.split('.').collect();
+    if parts.len() != 2 {
+        return Err(anyhow!("Invalid encrypted string format"));
+    }
 
-pub fn encrypt_private_key(private_key: &str) -> Result<String> {
-    let manager = ENCRYPTION_MANAGER.lock().unwrap();
-    let manager = manager.as_ref()
-        .ok_or_else(|| anyhow!("Encryption manager not initialized. Call initialize_encryption first."))?;
-    manager.encrypt_private_key(private_key)
-}
+    let salt_b64 = parts[0];
+    let payload_b64 = parts[1];
 
-pub fn decrypt_private_key(encrypted_private_key: &str) -> Result<String> {
-    let manager = ENCRYPTION_MANAGER.lock().unwrap();
-    let manager = manager.as_ref()
-        .ok_or_else(|| anyhow!("Encryption manager not initialized. Call initialize_encryption first."))?;
-    manager.decrypt_private_key(encrypted_private_key)
-} 
+    let salt_str = String::from_utf8(general_purpose::STANDARD_NO_PAD.decode(salt_b64)?)?;
+    let salt = SaltString::from_b64(&salt_str)
+        .map_err(|e| anyhow!("Invalid salt format: {}", e))?;
+
+    let encrypted_payload = general_purpose::STANDARD_NO_PAD.decode(payload_b64)?;
+
+    let key = EncryptionKey::new(master_password, &salt)?;
+    key.decrypt(&encrypted_payload)
+}

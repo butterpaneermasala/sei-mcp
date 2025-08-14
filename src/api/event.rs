@@ -1,5 +1,5 @@
 use crate::blockchain::client::SeiClient;
-use crate::config::Config;
+use crate::AppState;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -31,10 +31,10 @@ pub struct ContractEventsQuery {
 /// GET /search-events
 /// Searches for past transaction events based on various criteria.
 pub async fn search_events(
-    State(config): State<Config>,
+    State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
+    let client = SeiClient::new(&state.config.chain_rpc_urls, &state.config.websocket_url);
 
     let event_query = crate::blockchain::models::EventQuery {
         contract_address: None,
@@ -45,10 +45,7 @@ pub async fn search_events(
         to_block: query.to_block,
     };
 
-    let page = query.page.unwrap_or(1);
-    let per_page = query.per_page.unwrap_or(30);
-
-    match crate::blockchain::services::event::search_events(&client, event_query, page, per_page)
+    match crate::blockchain::services::event::search_events(&client, event_query)
         .await
     {
         Ok(result) => Ok(Json(serde_json::to_value(result).map_err(|e| {
@@ -64,10 +61,10 @@ pub async fn search_events(
 /// GET /get-contract-events
 /// Fetches historical events for a specific contract.
 pub async fn get_contract_events(
-    State(config): State<Config>,
+    State(state): State<AppState>,
     Query(query): Query<ContractEventsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
+    let client = SeiClient::new(&state.config.chain_rpc_urls, &state.config.websocket_url);
 
     let event_query = crate::blockchain::models::EventQuery {
         contract_address: Some(query.contract_address.clone()),
@@ -78,11 +75,9 @@ pub async fn get_contract_events(
         to_block: query.to_block,
     };
 
-    let page = query.page.unwrap_or(1);
-    let per_page = query.per_page.unwrap_or(30);
-
-    match crate::blockchain::services::event::search_events(&client, event_query, page, per_page)
-        .await
+    let _page = query.page.unwrap_or(1);
+    // Remove explicit pagination handling here; let the service handle it
+    match crate::blockchain::services::event::search_events(&client, event_query).await
     {
         Ok(result) => Ok(Json(serde_json::to_value(result).map_err(|e| {
             (
@@ -97,7 +92,7 @@ pub async fn get_contract_events(
 /// GET /subscribe-contract-events?contract_address={address}
 /// Subscribes to live events from a specific contract via WebSocket.
 pub async fn subscribe_contract_events(
-    State(_config): State<Config>,
+    State(_state): State<AppState>,
     Query(query): Query<ContractEventsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     // For now, return a message indicating WebSocket support is not yet implemented

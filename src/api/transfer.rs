@@ -1,7 +1,6 @@
 use crate::{
-    blockchain::client::SeiClient,
-    blockchain::models::SeiTransferRequest,
-    config::Config,
+    AppState,
+    blockchain::{client::SeiClient, models::SeiTransferRequest},
 };
 use anyhow::Result;
 use axum::{
@@ -38,7 +37,7 @@ pub struct TransferResponse {
 
 pub async fn transfer_sei_handler(
     Path(chain_id): Path<String>,
-    State(config): State<Config>,
+    State(state): State<AppState>,
     Json(request): Json<TransferRequest>,
 ) -> Result<Json<TransferResponse>, (axum::http::StatusCode, String)> {
     tracing::info!(
@@ -49,7 +48,7 @@ pub async fn transfer_sei_handler(
         request.gas_limit,
         request.gas_price
     );
-    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
+    let client = SeiClient::new(&state.config.chain_rpc_urls, &state.config.websocket_url);
 
     let transfer_request = SeiTransferRequest {
         to_address: request.to_address,

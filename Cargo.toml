@@ -25,6 +25,8 @@ uuid = { version = "1.0", features = ["v4"] }
 lazy_static = "1.4"
 base64 = "0.21"
 hex = "0.4"
+secrecy = "0.8"
+zeroize = { version = "1.7", features = ["zeroize_derive"] }
 
 # Configuration and Environment
 dotenvy = "0.15"
@@ -38,24 +40,33 @@ thiserror = "1.0"
 ethers-core = { version = "2.0" }
 ethers-signers = "2.0.14"
 
-# Blockchain (Cosmos / Tendermint)
-# THIS IS THE KEY FIX: Use the version compatible with cosmrs v0.14.0
+# Blockchain (Cosmos / Tendermint) - Only for event searching if retained, now replaced
 tendermint-rpc = { version = "0.32.2", features = ["http-client", "websocket-client"] }
 
 tonic = "0.11"
 cosmos-sdk-proto = { version = "0.20.0", features = ["cosmwasm"] }
+cosmrs = { version = "0.17" }
 
 # Cryptography and Keys
 bip39 = "2.0"
 aes-gcm = "0.10"
 argon2 = "0.5"
+hdpath = "0.6"
+k256 = "0.13"
+bech32 = "0.9"
+ripemd = "0.1"
 sha2 = "0.10"
-rpassword = "7.0"
 rand = "0.8"
+rpassword = "7.0"
+bip32 = { version = "0.5", features = ["secp256k1"] }
+
+# Concurrency
+dashmap = "5.5" # FIX: Added for concurrent nonce management
 
 # Utilities
 reqwest = { version = "0.12", features = ["json"] }
 atty = "0.2"
+prost = "0.12"
 
 
 [dev-dependencies]

@@ -6,7 +6,11 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 use crate::{
-    blockchain::client::SeiClient, blockchain::models::EstimateFeesRequest, config::Config,
+    AppState,
+    blockchain::{
+        client::SeiClient,
+        models::EstimateFeesRequest,
+    },
 };
 
 // --- Request and Response Models ---
@@ -34,7 +38,7 @@ pub struct EstimateFeesOutput {
 /// This function estimates the gas fees for a potential transaction.
 pub async fn estimate_fees_handler(
     Path(chain_id): Path<String>,
-    State(config): State<Config>,
+    State(state): State<AppState>,
     Json(payload): Json<EstimateFeesInput>,
 ) -> Result<Json<EstimateFeesOutput>, (axum::http::StatusCode, String)> {
     info!(
@@ -42,7 +46,7 @@ pub async fn estimate_fees_handler(
         chain_id
     );
 
-    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
+    let client = SeiClient::new(&state.config.chain_rpc_urls, &state.config.websocket_url);
 
     // Create the request model from the input payload.
     let estimate_fees_request = EstimateFeesRequest {

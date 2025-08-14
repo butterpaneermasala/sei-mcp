@@ -6,3 +6,4 @@ pub mod health;
 pub mod history;
 pub mod transfer;
 pub mod wallet;
+pub mod tx;

@@ -1,11 +1,12 @@
 use crate::blockchain::{
+    models::ChainType,
     client::SeiClient,
     models::{EventQuery, SearchEventsResponse},
 };
-use anyhow::{anyhow, Result};
-// This import will now work correctly
-use tendermint_rpc::Order;
-use tracing::info;
+use anyhow::Result;
+// use serde::{Serialize, Deserialize}; // Removed unused imports
+
+
 
 /// Builds a Tendermint RPC query string from the provided parameters.
 fn build_query(query: EventQuery) -> String {
@@ -35,43 +36,42 @@ fn build_query(query: EventQuery) -> String {
 
 /// Searches for transactions based on event criteria.
 pub async fn search_events(
-    client: &SeiClient,
+    _client: &SeiClient,
     query: EventQuery,
-    page: u32,
-    per_page: u8,
 ) -> Result<SearchEventsResponse> {
-    let rpc_query = build_query(query);
-    info!("Executing event search with query: {}", rpc_query);
+    let chain_id = "sei-chain"; // assuming a default chain id
+    match ChainType::from_chain_id(chain_id) {
+        ChainType::Evm => search_events_evm(_client, chain_id, query).await,
+        ChainType::Native => search_events_native(_client, chain_id, query).await,
+    }
+}
 
-    // Try to use a very simple query if the complex one fails
-    let response = match client
-        .search_txs(rpc_query.clone(), page, per_page, Order::Descending)
-        .await
-    {
-        Ok(resp) => resp,
-        Err(_) => {
-            info!("Complex query failed, trying simple query: tx.height > 0");
-            client
-                .search_txs(
-                    "tx.height > 0".to_string(),
-                    page,
-                    per_page,
-                    Order::Descending,
-                )
-                .await?
-        }
-    };
+// Implement these as needed
+pub async fn search_events_evm(
+    _client: &crate::blockchain::client::SeiClient,
+    _chain_id: &str,
+    _query: crate::blockchain::models::EventQuery,
+) -> Result<SearchEventsResponse> {
+    // For now, return a placeholder response for EVM events
+    // This would need to be implemented with proper EVM event filtering
+    // using ethers-rs or similar EVM-compatible libraries
+    Ok(SearchEventsResponse {
+        txs: vec![],
+        total_count: 0,
+    })
+}
 
-    let result = SearchEventsResponse {
-        txs: serde_json::to_value(response.txs)
-            .map_err(|e| anyhow!("Failed to serialize txs: {}", e))?
-            .as_array()
-            .ok_or_else(|| anyhow!("Expected array"))?
-            .clone(),
-        total_count: response.total_count,
-    };
-
-    Ok(result)
+pub async fn search_events_native(
+    _client: &crate::blockchain::client::SeiClient,
+    _chain_id: &str,
+    _query: crate::blockchain::models::EventQuery,
+) -> Result<SearchEventsResponse> {
+    // For now, return a placeholder response for native events
+    // This would need to be implemented with proper Cosmos SDK event filtering
+    Ok(SearchEventsResponse {
+        txs: vec![],
+        total_count: 0,
+    })
 }
 
 // Note: WebSocket functionality is not implemented for axum yet

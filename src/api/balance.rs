@@ -1,6 +1,4 @@
-use crate::{
-    blockchain::client::SeiClient, config::Config,
-};
+use crate::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -29,11 +27,10 @@ pub struct BalanceOutput {
 // The handler function for the GET /balance/{chain_id}/{address} endpoint.
 pub async fn get_balance_handler(
     Path(path): Path<BalancePath>,
-    State(config): State<Config>,
+    State(state): State<AppState>, // FIX: Use AppState
 ) -> impl IntoResponse {
-    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
-
-    match client.get_balance(&path.chain_id, &path.address).await {
+    // FIX: Use the client from the shared state
+    match state.sei_client.get_balance(&path.chain_id, &path.address).await {
         Ok(balance_response) => {
             let output = BalanceOutput {
                 chain_id: path.chain_id.clone(),

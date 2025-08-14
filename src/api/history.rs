@@ -5,7 +5,13 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use crate::{blockchain::client::SeiClient, blockchain::models::Transaction, config::Config};
+use crate::{
+    AppState,
+    blockchain::{
+        client::SeiClient,
+        models::Transaction,
+    },
+};
 
 // --- Request and Response Models ---
 
@@ -36,14 +42,14 @@ pub struct HistoryOutput {
 pub async fn get_transaction_history_handler(
     Path(path): Path<HistoryPath>,
     Query(query): Query<HistoryQuery>, // <-- New Query extractor
-    State(config): State<Config>,
+    State(state): State<AppState>,
 ) -> Result<Json<HistoryOutput>, (axum::http::StatusCode, String)> {
     info!(
         "Received request for transaction history for chain '{}' and address '{}'",
         path.chain_id, path.address
     );
 
-    let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
+    let client = SeiClient::new(&state.config.chain_rpc_urls, &state.config.websocket_url);
 
     // Use the provided range or a default value (e.g., 2000 blocks).
     let limit = query.limit.unwrap_or(20); // Default to 20 transactions

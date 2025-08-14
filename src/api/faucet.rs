@@ -1,54 +1,66 @@
 // src/api/faucet.rs
 
-use crate::blockchain::services::faucet::send_faucet_tokens;
-use crate::config::Config;
-use axum::debug_handler;
-use axum::{
-    extract::State,
-    http::StatusCode,
-    Json,
-};
-use serde::{Deserialize, Serialize};
+use crate::AppState; // FIX: Import AppState
+use axum::{extract::State, http::StatusCode, Json};
+use serde::Deserialize;
+use std::time::Instant;
 
 #[derive(Deserialize)]
 pub struct FaucetRequest {
     pub address: String,
-}
-
-#[derive(Serialize)]
-pub struct FaucetResponse {
-    pub success: bool,
-    #[serde(rename = "txHash")]
-    pub tx_hash: String,
+    pub chain_id: String, // required
 }
 
 /// Axum handler for the faucet request endpoint.
-/// It now only accepts EVM addresses.
-#[debug_handler]
+// FIX: It now receives the full AppState.
 pub async fn request_faucet(
-    State(config): State<Config>,
+    State(state): State<AppState>,
     Json(req): Json<FaucetRequest>,
-) -> Result<Json<FaucetResponse>, (StatusCode, String)> {
-    // Validate that the provided address is an EVM address (starts with "0x").
-    if !req.address.starts_with("0x") {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Invalid address format. Only EVM (0x...) addresses are supported for the faucet.".to_string(),
-        ));
+) -> Result<Json<String>, (StatusCode, String)> {
+    // Normalize common aliases users might pass
+    let mut chain_id = req.chain_id.trim().to_string();
+    if chain_id == "sei-testnet" { chain_id = "sei-evm-testnet".to_string(); }
+    if chain_id == "sei-mainnet" { chain_id = "sei-evm-mainnet".to_string(); }
+
+    let rpc_url = match state.config.chain_rpc_urls.get(&chain_id) {
+        Some(u) => u,
+        None => {
+            let keys: Vec<String> = state.config.chain_rpc_urls.keys().cloned().collect();
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!(
+                    "RPC URL not configured for chain_id '{}'. Available: {}",
+                    chain_id,
+                    keys.join(", ")
+                ),
+            ));
+        }
+    };
+
+    // Enforce per-address cooldown (operator-configurable)
+    let key = format!("{}::{}", chain_id, req.address.to_lowercase());
+    let now = Instant::now();
+    let cooldown = std::time::Duration::from_secs(state.config.faucet_address_cooldown_secs);
+    {
+        let mut map = state.faucet_cooldowns.lock().await;
+        if let Some(last) = map.get(&key) {
+            if now.duration_since(*last) < cooldown {
+                return Err((
+                    StatusCode::TOO_MANY_REQUESTS,
+                    format!("Faucet cooldown active for this address. Try again later."),
+                ));
+            }
+        }
+        map.insert(key, now);
     }
 
-    // Call the underlying service to send the tokens.
-    match send_faucet_tokens(&config, &req.address).await {
-        Ok(tx_hash) => Ok(Json(FaucetResponse {
-            success: true,
-            tx_hash,
-        })),
-        Err(e) => {
-            tracing::error!("Faucet transaction failed: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Faucet transaction failed: {}", e),
-            ))
-        }
-    }
+    let tx_hash = crate::blockchain::services::faucet::send_faucet_tokens(
+        &state.config,
+        &req.address,
+        &state.nonce_manager,
+        rpc_url,
+        &chain_id,
+    ).await.map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(Json(tx_hash))
 }

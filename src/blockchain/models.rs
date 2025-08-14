@@ -10,6 +10,8 @@ pub enum WalletGenerationError {
     MnemonicError(#[from] bip39::Error),
     #[error("failed to derive wallet from mnemonic: {0}")]
     DerivationError(#[from] anyhow::Error),
+    #[error("key generation failed: {0}")]
+    KeyGenerationFailed(String),
 }
 
 #[derive(Error, Debug)]
@@ -18,9 +20,60 @@ pub enum ImportWalletError {
     InvalidMnemonic(String),
     #[error("invalid private key: {0}")]
     InvalidPrivateKey(String),
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+}
+
+#[derive(Error, Debug)]
+pub enum CreateWalletError {
+    #[error("failed to generate wallet: {0}")]
+    GenerationFailed(String),
+    #[error("key derivation failed: {0}")]
+    KeyDerivationFailed(String),
 }
 
 // --- Wallet Models ---
+
+/// Dual network wallet containing both EVM and native addresses
+#[derive(Debug, Clone)]
+pub struct DualNetworkWallet {
+    pub evm_address: String,
+    pub native_address: String,
+    // Store sensitive data securely in memory
+    pub private_key: secrecy::Secret<[u8; 32]>,
+    pub mnemonic: Option<secrecy::SecretString>,
+}
+
+impl DualNetworkWallet {
+    pub fn to_wallet_response(&self) -> WalletResponse {
+        WalletResponse {
+            address: self.evm_address.clone(), // Default to EVM for backward compatibility
+            private_key: self.private_key_hex(),
+            mnemonic: self.mnemonic_string(),
+        }
+    }
+
+    /// Return hex-encoded private key for API response (avoid logging elsewhere)
+    pub fn private_key_hex(&self) -> String {
+        use secrecy::ExposeSecret;
+        let bytes = self.private_key.expose_secret();
+        hex::encode(bytes)
+    }
+
+    /// Return mnemonic as String for API response if present
+    pub fn mnemonic_string(&self) -> Option<String> {
+        use secrecy::ExposeSecret;
+        self.mnemonic.as_ref().map(|s| s.expose_secret().clone())
+    }
+
+    /// Get the appropriate address for the specified network
+    pub fn address_for_network(&self, chain_type: ChainType) -> String {
+        match chain_type {
+            ChainType::Evm => self.evm_address.clone(),
+            ChainType::Native => self.native_address.clone(),
+        }
+    }
+}
 
 /// Defines the structure for a generated or imported wallet.
 #[derive(Debug, Serialize, Deserialize)]
@@ -164,4 +217,21 @@ pub struct EventQuery {
 pub struct SearchEventsResponse {
     pub txs: Vec<serde_json::Value>,
     pub total_count: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChainType {
+    Native,
+    Evm,
+}
+
+impl ChainType {
+    pub fn from_chain_id(chain_id: &str) -> Self {
+        // You can refine this logic as needed for your deployment
+        if chain_id.contains("evm") || chain_id.starts_with("0x") {
+            ChainType::Evm
+        } else {
+            ChainType::Native
+        }
+    }
 }
