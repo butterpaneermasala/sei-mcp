@@ -4,47 +4,59 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# Existing dependencies
-reqwest = { version = "0.12", features = ["json"] }
-axum = "0.7"
+# Web Framework (Axum)
+axum = { version = "0.7.5", features = ["macros"] }
 tokio = { version = "1", features = ["full"] }
+tower = { version = "0.4.13", features = ["full"] }
+tower-http = { version = "0.5.2", features = ["cors", "trace"] }
+
+# Async and Tracing
+futures = "0.3"
+futures-util = "0.3"
+tokio-util = "0.7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-anyhow = "1.0"
+
+# Serialization and Data Handling
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-atty = "0.2"
-dotenvy = "0.15"
-bip39 = "2.0"
-ethers-core = { version = "2.0" }
-hex = "0.4"
-tokio-util = "0.7"
-thiserror = "1.0"
-rand = "0.8"
 chrono = { version = "0.4.41", features = ["serde"] }
-futures = "0.3"
-tendermint-rpc = { version = "0.34", features = [
-    "http-client",
-    "websocket-client",
-] }
+uuid = { version = "1.0", features = ["v4"] }
+lazy_static = "1.4"
+base64 = "0.21"
+hex = "0.4"
 
-# Encryption dependencies
+# Configuration and Environment
+dotenvy = "0.15"
+dirs = "5.0"
+
+# Error Handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Blockchain (Ethereum)
+ethers-core = { version = "2.0" }
+ethers-signers = "2.0.14"
+
+# Blockchain (Cosmos / Tendermint)
+# THIS IS THE KEY FIX: Use the version compatible with cosmrs v0.14.0
+tendermint-rpc = { version = "0.32.2", features = ["http-client", "websocket-client"] }
+
+tonic = "0.11"
+cosmos-sdk-proto = { version = "0.20.0", features = ["cosmwasm"] }
+
+# Cryptography and Keys
+bip39 = "2.0"
 aes-gcm = "0.10"
 argon2 = "0.5"
-base64 = "0.21"
-dirs = "5.0"
 sha2 = "0.10"
 rpassword = "7.0"
+rand = "0.8"
 
-# Simple MCP dependencies  
-uuid = { version = "1.0", features = ["v4"] }
-actix-web = "4.11.0"
-tracing-actix-web = "0.7.19"
-ethers-signers = "2.0.14"
-actix-cors = "0.7"
-actix-governor = "0.5"
-lazy_static = "1.4"
-futures-util = "0.3"
-actix-web-actors = "4.1.0"
+# Utilities
+reqwest = { version = "0.12", features = ["json"] }
+atty = "0.2"
+
+
 [dev-dependencies]
 tempfile = "3.8"

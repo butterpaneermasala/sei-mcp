@@ -45,7 +45,7 @@ pub async fn transfer_sei(
     let nonce_hex = nonce_response["result"]
         .as_str()
         .ok_or_else(|| anyhow!("Failed to get nonce"))?;
-    let nonce = U256::from_str(nonce_hex).map_err(|_| anyhow!("Failed to parse nonce"))?;
+    let nonce = U256::from_str_radix(nonce_hex.trim_start_matches("0x"), 16).map_err(|_| anyhow!("Failed to parse nonce"))?;
 
     // Get chain id
     let chain_id_payload = json!({
@@ -66,7 +66,7 @@ pub async fn transfer_sei(
     let chain_id_hex = chain_id_response["result"]
         .as_str()
         .ok_or_else(|| anyhow!("Failed to get chain id"))?;
-    let chain_id = U64::from_str(chain_id_hex).map_err(|_| anyhow!("Failed to parse chain id"))?;
+    let chain_id = U64::from_str_radix(chain_id_hex.trim_start_matches("0x"), 16).map_err(|_| anyhow!("Failed to parse chain id"))?;
 
     let gas_limit = if let Some(limit) = &request.gas_limit {
         U256::from_dec_str(limit).unwrap_or(U256::from(30000))
@@ -241,14 +241,12 @@ async fn call_contract_function<T: ethers_core::abi::Detokenize>(
     function_name: &str,
     params: &[Token],
 ) -> Result<T> {
-    // NOTE: You must provide the correct parameter types for the function being called.
-    // For ERC20 name/symbol/decimals, there are no inputs, so this is fine.
     let function = Function {
         name: function_name.to_string(),
-        inputs: vec![], // No inputs for name/symbol/decimals
+        inputs: vec![],
         outputs: vec![Param {
             name: "output".to_string(),
-            kind: ParamType::String, // Placeholder, will be decoded to T
+            kind: ParamType::String,
             internal_type: None,
         }],
         constant: None,

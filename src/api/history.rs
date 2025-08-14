@@ -5,7 +5,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use crate::{blockchain::client::SeiClient, blockchain::models::Transaction, config::AppConfig};
+use crate::{blockchain::client::SeiClient, blockchain::models::Transaction, config::Config};
 
 // --- Request and Response Models ---
 
@@ -33,14 +33,10 @@ pub struct HistoryOutput {
 // --- Handler ---
 
 /// Handler for the GET /history/{chain_id}/{address} endpoint.
-/// This function retrieves the transaction history for an address on a specified chain.
-///
-/// It now accepts an optional `range` query parameter to specify the number of blocks to scan.
-/// Example: GET /history/sei/0x...address...?range=5000
 pub async fn get_transaction_history_handler(
     Path(path): Path<HistoryPath>,
     Query(query): Query<HistoryQuery>, // <-- New Query extractor
-    State(config): State<AppConfig>,
+    State(config): State<Config>,
 ) -> Result<Json<HistoryOutput>, (axum::http::StatusCode, String)> {
     info!(
         "Received request for transaction history for chain '{}' and address '{}'",

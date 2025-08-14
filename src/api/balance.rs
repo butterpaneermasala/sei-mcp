@@ -1,10 +1,11 @@
 use crate::{
-    blockchain::client::SeiClient, config::AppConfig,
+    blockchain::client::SeiClient, config::Config,
 };
-use anyhow::Result;
 use axum::{
-    Json,
     extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
 };
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -28,26 +29,27 @@ pub struct BalanceOutput {
 // The handler function for the GET /balance/{chain_id}/{address} endpoint.
 pub async fn get_balance_handler(
     Path(path): Path<BalancePath>,
-    State(config): State<AppConfig>,
-) -> Result<Json<BalanceOutput>, (axum::http::StatusCode, String)> {
+    State(config): State<Config>,
+) -> impl IntoResponse {
     let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
 
     match client.get_balance(&path.chain_id, &path.address).await {
         Ok(balance_response) => {
             let output = BalanceOutput {
-                chain_id: path.chain_id,
-                address: path.address,
+                chain_id: path.chain_id.clone(),
+                address: path.address.clone(),
                 balance: balance_response.amount,
                 denom: balance_response.denom,
             };
-            Ok(Json(output))
+            (StatusCode::OK, Json(output)).into_response()
         }
         Err(e) => {
             error!("Failed to get balance for {}: {:?}", path.address, e);
-            Err((
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
                 format!("Failed to fetch balance: {}", e),
-            ))
+            )
+                .into_response()
         }
     }
 }

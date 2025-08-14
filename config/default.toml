@@ -1,0 +1,24 @@
+
+[package]
+name = "mcp-server"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-web = "4"
+serde = { version = "1.0", features = ["derive"] }
+config = "0.13"
+log = "0.4"
+env_logger = "0.9"
+tokio = { version = "1", features = ["full"] }
+
+# New dependencies for the native faucet
+cosmrs = { version = "0.14.0", features = ["rpc"] }
+anyhow = "1.0"
+hex = "0.4"
+bech32 = "0.9"
+
+# Your other dependencies (e.g., for database) should go here
+# sqlx = { version = "0.7", features = [ "runtime-tokio-rustls", "postgres" ] }

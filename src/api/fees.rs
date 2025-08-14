@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 use crate::{
-    blockchain::client::SeiClient, blockchain::models::EstimateFeesRequest, config::AppConfig,
+    blockchain::client::SeiClient, blockchain::models::EstimateFeesRequest, config::Config,
 };
 
 // --- Request and Response Models ---
@@ -34,7 +34,7 @@ pub struct EstimateFeesOutput {
 /// This function estimates the gas fees for a potential transaction.
 pub async fn estimate_fees_handler(
     Path(chain_id): Path<String>,
-    State(config): State<AppConfig>,
+    State(config): State<Config>,
     Json(payload): Json<EstimateFeesInput>,
 ) -> Result<Json<EstimateFeesOutput>, (axum::http::StatusCode, String)> {
     info!(

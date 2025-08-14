@@ -1,7 +1,7 @@
 use crate::{
     blockchain::client::SeiClient,
     blockchain::models::SeiTransferRequest,
-    config::AppConfig,
+    config::Config,
 };
 use anyhow::Result;
 use axum::{
@@ -38,7 +38,7 @@ pub struct TransferResponse {
 
 pub async fn transfer_sei_handler(
     Path(chain_id): Path<String>,
-    State(config): State<AppConfig>,
+    State(config): State<Config>,
     Json(request): Json<TransferRequest>,
 ) -> Result<Json<TransferResponse>, (axum::http::StatusCode, String)> {
     tracing::info!(

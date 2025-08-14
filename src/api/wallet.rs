@@ -1,11 +1,11 @@
 use anyhow::Result;
-use axum::{Json, extract::State};
+use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 use crate::{
     blockchain::client::SeiClient,
-    config::AppConfig,
+    config::Config,
 };
 
 // --- Request and Response Models ---
@@ -34,9 +34,8 @@ pub struct ImportWalletOutput {
 // --- Handlers ---
 
 /// Handler for the POST /wallet/create endpoint.
-/// This function generates a new HD wallet, including a mnemonic, and returns the details.
 pub async fn create_wallet_handler(
-    State(config): State<AppConfig>,
+    State(config): State<Config>,
 ) -> Result<Json<WalletOutput>, (axum::http::StatusCode, String)> {
     info!("Received request to create a new wallet.");
 
@@ -62,9 +61,8 @@ pub async fn create_wallet_handler(
 }
 
 /// Handler for the POST /wallet/import endpoint.
-/// This function imports a wallet from a mnemonic or private key and returns the wallet details.
 pub async fn import_wallet_handler(
-    State(config): State<AppConfig>,
+    State(config): State<Config>,
     Json(payload): Json<ImportWalletInput>,
 ) -> Result<Json<ImportWalletOutput>, (axum::http::StatusCode, String)> {
     info!("Received request to import a wallet.");

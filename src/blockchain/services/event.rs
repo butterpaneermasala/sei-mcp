@@ -3,6 +3,7 @@ use crate::blockchain::{
     models::{EventQuery, SearchEventsResponse},
 };
 use anyhow::{anyhow, Result};
+// This import will now work correctly
 use tendermint_rpc::Order;
 use tracing::info;
 
@@ -75,11 +76,13 @@ pub async fn search_events(
 
 // Note: WebSocket functionality is not implemented for axum yet
 // This would require additional WebSocket support in axum
+#[allow(dead_code)] // Suppress warning as this is for future implementation
 pub struct ContractEventSubscriber {
     client: SeiClient,
     contract_address: String,
 }
 
+#[allow(dead_code)] // Suppress warning as this is for future implementation
 impl ContractEventSubscriber {
     pub fn new(client: SeiClient, contract_address: String) -> Self {
         Self {

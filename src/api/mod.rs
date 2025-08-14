@@ -1,6 +1,6 @@
-// Declare all our API modules.
 pub mod balance;
 pub mod event;
+pub mod faucet;
 pub mod fees;
 pub mod health;
 pub mod history;

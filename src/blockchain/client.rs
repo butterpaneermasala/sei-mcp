@@ -13,10 +13,12 @@ use crate::blockchain::services::wallet as wallet_service;
 use anyhow::{anyhow, Result};
 use reqwest::Client as ReqwestClient;
 use std::collections::HashMap;
-use tendermint_rpc::client::websocket;
+// These imports will now work correctly
 use tendermint_rpc::{
-    client::Client as TendermintClient, client::HttpClient, client::WebSocketClient, Order,
+    client::{Client as TendermintClient, HttpClient, WebSocketClient},
+    Order,
 };
+
 
 // --- SeiClient Implementation ---
 

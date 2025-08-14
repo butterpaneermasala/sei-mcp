@@ -1,5 +1,5 @@
 use crate::blockchain::client::SeiClient;
-use crate::config::AppConfig;
+use crate::config::Config;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -30,14 +30,8 @@ pub struct ContractEventsQuery {
 
 /// GET /search-events
 /// Searches for past transaction events based on various criteria.
-/// Query Parameters:
-/// - event_type: e.g., "wasm"
-/// - attribute_key: e.g., "action"
-/// - attribute_value: e.g., "transfer"
-/// - from_block, to_block: Block height range.
-/// - page, per_page: Pagination.
 pub async fn search_events(
-    State(config): State<AppConfig>,
+    State(config): State<Config>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
@@ -69,13 +63,8 @@ pub async fn search_events(
 
 /// GET /get-contract-events
 /// Fetches historical events for a specific contract.
-/// Query Parameters:
-/// - contract_address: The address of the smart contract.
-/// - event_type: Optional event type to filter by.
-/// - from_block, to_block: Block height range.
-/// - page, per_page: Pagination.
 pub async fn get_contract_events(
-    State(config): State<AppConfig>,
+    State(config): State<Config>,
     Query(query): Query<ContractEventsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let client = SeiClient::new(&config.chain_rpc_urls, &config.websocket_url);
@@ -107,9 +96,8 @@ pub async fn get_contract_events(
 
 /// GET /subscribe-contract-events?contract_address={address}
 /// Subscribes to live events from a specific contract via WebSocket.
-/// Note: WebSocket support requires additional setup in axum.
 pub async fn subscribe_contract_events(
-    State(_config): State<AppConfig>,
+    State(_config): State<Config>,
     Query(query): Query<ContractEventsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     // For now, return a message indicating WebSocket support is not yet implemented

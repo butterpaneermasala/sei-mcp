@@ -1,14 +1,21 @@
 {
   "mcpServers": {
     "sei-mcp-server": {
-      "command": "/home/sahilkaushik/study_material/blockchain/sei-mcp/target/release/sei-mcp-server-rs",
-      "args": [
-        "--mcp"
-      ],
-      "cwd": "/home/sahilkaushik/study_material/blockchain/sei-mcp",
+      "command": "/home/satya/hackathons/seii/sei-mcp-server-rs/target/release/sei-mcp-server-rs",
+      "args": ["--mcp"],
+      "cwd": "/home/satya/hackathons/seii/sei-mcp-server-rs",
       "env": {
-        "CHAIN_RPC_URLS": "sei-testnet=https://sei-testnet.drpc.org",
-        "PORT": "3000"
+        "NO_COLOR": "1",
+        "RUST_LOG_STYLE": "never",
+        "CHAIN_RPC_URLS": "{\"sei-testnet\":\"https://sei-testnet.drpc.org\"}",
+        "PORT": "8080",
+        "WEBSOCKET_URL": "wss://rpc.atlantic-2.seinetwork.io/websocket",
+        "FAUCET_PRIVATE_KEY": "PrivateKey",
+        "FAUCET_AMOUNT_USEI": "100000",
+        "FAUCET_DENOM": "usei",
+        "FAUCET_PREFIX": "sei",
+        "FAUCET_GAS_LIMIT": "200000",
+        "FAUCET_FEE_AMOUNT": "5000"
       }
     }
   }
