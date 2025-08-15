@@ -10,10 +10,11 @@ pub struct Config {
     pub port: u16,
     pub chain_rpc_urls: HashMap<String, String>,
     pub websocket_url: String,
+    pub faucet_api_url: String,
     pub faucet_private_key: String,
     pub faucet_private_key_evm: String,
     pub faucet_private_key_native: String,
-    pub faucet_address: String, // FIX: Add missing faucet_address field
+    pub faucet_address: Option<String>, // Optional: only needed for legacy native send
     pub faucet_amount_usei: u64,
     pub faucet_denom: String,
     pub faucet_gas_limit: u64,
@@ -67,12 +68,12 @@ impl Config {
                 .context("PORT must be a valid number")?,
             chain_rpc_urls,
             websocket_url: env::var("WEBSOCKET_URL").unwrap_or_else(|_| "".to_string()),
+            faucet_api_url: env::var("FAUCET_API_URL").context("FAUCET_API_URL must be set to the faucet HTTP base URL, e.g. https://your-faucet.onrender.com")?,
             // Optional: legacy/global faucet key. Prefer network-specific keys below.
             faucet_private_key,
             faucet_private_key_evm,
             faucet_private_key_native,
-            faucet_address: env::var("FAUCET_ADDRESS")
-                .context("FAUCET_ADDRESS must be set")?,
+            faucet_address: env::var("FAUCET_ADDRESS").ok(),
             faucet_amount_usei: env::var("FAUCET_AMOUNT_USEI")
                 .unwrap_or_else(|_| "100000".to_string())
                 .parse()

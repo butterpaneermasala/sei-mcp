@@ -1,62 +1,55 @@
 // src/blockchain/services/faucet.rs
 
 use crate::blockchain::models::ChainType;
-use crate::blockchain::services::transactions::{send_evm_transaction, send_native_transaction_signed};
 use crate::config::Config;
-use ethers_core::types::{Address, TransactionRequest, U256};
-use ethers_signers::LocalWallet;
-use anyhow::{Result, Context};
-use std::str::FromStr;
+use anyhow::{Context, Result};
+use serde::Deserialize;
+use serde_json::json;
 use tracing::info;
 
 /// Sends faucet tokens via a standard EVM transaction.
 pub async fn send_faucet_tokens(
     config: &Config,
     recipient_address: &str,
-    nonce_manager: &crate::blockchain::nonce_manager::NonceManager,
-    rpc_url: &str,
+    _nonce_manager: &crate::blockchain::nonce_manager::NonceManager,
+    _rpc_url: &str,
     chain_id: &str,
 ) -> Result<String> {
     let chain_type = ChainType::from_chain_id(chain_id);
 
-    match chain_type {
-        ChainType::Evm => {
-            info!("Initiating EVM faucet transfer to {}", recipient_address);
-            if config.faucet_private_key_evm.trim().is_empty() {
-                anyhow::bail!("FAUCET_PRIVATE_KEY_EVM not set; cannot send EVM faucet transactions");
-            }
-            let wallet = LocalWallet::from_str(&config.faucet_private_key_evm)
-                .context("Failed to load faucet wallet from private key")?;
-            let recipient = Address::from_str(recipient_address)
-                .context("Invalid recipient EVM address format")?;
-            let value = U256::from(config.faucet_amount_usei);
-            let gas_limit = U256::from(config.faucet_gas_limit);
-            let gas_price = U256::from(config.faucet_fee_amount);
+    // Map ChainType to faucet API chain labels
+    let faucet_chain = match chain_type {
+        ChainType::Evm => "sei-evm-testnet",
+        ChainType::Native => "sei-native-testnet",
+    };
 
-            let tx_request = TransactionRequest::new()
-                .to(recipient)
-                .value(value)
-                .gas(gas_limit)
-                .gas_price(gas_price);
+    info!("Requesting faucet via API for {} on {}", recipient_address, faucet_chain);
 
-            let tx_response = send_evm_transaction(
-                rpc_url,
-                wallet,
-                tx_request,
-                nonce_manager
-            ).await?;
-            Ok(tx_response.tx_hash)
-        }
-        ChainType::Native => {
-            info!("Initiating native SEI faucet transfer to {}", recipient_address);
-            let tx_hash = send_native_transaction_signed(
-                config,
-                rpc_url,
-                &config.faucet_private_key_native,
-                recipient_address,
-                config.faucet_amount_usei,
-            ).await?;
-            Ok(tx_hash)
-        }
+    let client = reqwest::Client::new();
+    let url = format!("{}/faucet/request", config.faucet_api_url.trim_end_matches('/'));
+
+    #[derive(Deserialize)]
+    struct FaucetResponse {
+        #[serde(rename = "txHash")] 
+        tx_hash: String,
     }
+
+    let resp = client
+        .post(&url)
+        .json(&json!({
+            "address": recipient_address,
+            "chain": faucet_chain,
+        }))
+        .send()
+        .await
+        .context("Failed to call faucet API")?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("Faucet API error: status={} body={}", status, text);
+    }
+
+    let parsed: FaucetResponse = resp.json().await.context("Invalid faucet API response")?;
+    Ok(parsed.tx_hash)
 }
