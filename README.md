@@ -1,6 +1,6 @@
 # Sei MCP Server
 
-A Model Context Protocol (MCP) server for Sei blockchain operations with persistent encrypted wallet storage, similar to Foundry's Cast wallet functionality.
+A Model Context Protocol (MCP) server for Sei blockchain operations with persistent encrypted wallet storage, plus an external Faucet API integration.
 
 ## Features
 
@@ -27,12 +27,32 @@ cargo build --release
 Create a `.env` file in the project root:
 
 ```env
-# Blockchain RPC URLs
-CHAIN_RPC_URLS={"sei":"https://rpc.sei.io"}
+# REQUIRED: JSON map of chain_id -> RPC URL
+# Example contains both EVM and native testnets
+CHAIN_RPC_URLS={"sei-evm-testnet":"https://evm-rpc-testnet.sei-apis.com","sei-native-testnet":"https://rpc-testnet.sei-apis.com"}
 
-# Server port (for HTTP mode)
+# Server port (HTTP mode)
 PORT=3000
+
+# External Faucet API base URL
+FAUCET_API_URL=https://sei-mcp.onrender.com
+
+# Optional (only if you use direct-signed /api/tx/send):
+# EVM default sender key (back-compat fallbacks: FAUCET_PRIVATE_KEY_EVM, FAUCET_PRIVATE_KEY)
+TX_PRIVATE_KEY_EVM=0x...
+# Optional default sender address for native sends (back-compat fallback: FAUCET_ADDRESS)
+DEFAULT_SENDER_ADDRESS=sei1...
+# Native send parameters (back-compat fallbacks supported)
+NATIVE_DENOM=usei
+NATIVE_GAS_LIMIT=200000
+NATIVE_FEE_AMOUNT=5000
+NATIVE_CHAIN_ID=atlantic-2
+NATIVE_BECH32_HRP=sei
 ```
+
+Notes:
+- CHAIN_RPC_URLS is now required. There is no localhost fallback.
+- The Faucet is handled entirely by the external API. MCP does not store faucet keys.
 
 ### MCP Client Configuration
 
@@ -50,7 +70,8 @@ Update your `mcp.json` file:
       ],
       "cwd": "/path/to/sei-mcp-server-rs",
       "env": {
-        "CHAIN_RPC_URLS": "{\"sei\":\"https://rpc.sei.io\"}",
+        "CHAIN_RPC_URLS": "{\"sei-evm-testnet\":\"https://evm-rpc-testnet.sei-apis.com\",\"sei-native-testnet\":\"https://rpc-testnet.sei-apis.com\"}",
+        "FAUCET_API_URL": "https://sei-mcp.onrender.com",
         "PORT": "3000"
       }
     }
@@ -217,6 +238,7 @@ This returns a confirmation code and transaction ID.
 - `get_transaction_history` - Get transaction history
 - `estimate_fees` - Estimate transaction fees
 - `transfer_sei` - Direct transfer (requires private key)
+- `request_faucet` - Requests tokens via the external Faucet API (enforces cooldowns and rate-limits)
 
 ### Enhanced Tools (with Persistent Storage)
 - `register_wallet` - Register wallet with encryption

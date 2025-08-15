@@ -8,10 +8,8 @@
       "cwd": "/home/sahilkaushik/study_material/blockchain/sei-mcp",
       "env": {
         "CHAIN_RPC_URLS": "{\"sei-evm-testnet\":\"https://evm-rpc-testnet.sei-apis.com\",\"atlantic-2\":\"https://rpc-testnet.sei-apis.com\",\"sei-evm-mainnet\":\"https://evm-rpc.sei-apis.com\",\"pacific-1\":\"https://sei-rpc.polkachu.com\"}",
-        "MCP_MODE": "1",
-        "FAUCET_ADDRESS": "sei1m07ecurtmj793dq4c0p7x9e4ezmwtj3nrj836k",
-        "NATIVE_CHAIN_ID": "atlantic-2",
-        "NATIVE_BECH32_HRP": "sei"
+        "FAUCET_API_URL": "https://sei-mcp.onrender.com",
+        "PORT": "8080"
       }
     }
   }

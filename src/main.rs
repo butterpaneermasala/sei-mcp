@@ -5,7 +5,7 @@ use axum::{
     middleware,
 };
 use axum::{routing::get, routing::post, Router};
-use sei_mcp_server_rs::api::wallet::{create_wallet_handler, import_wallet_handler};
+use axum::{middleware, extract::{ConnectInfo, State}};
 use sei_mcp_server_rs::AppState;
 use sei_mcp_server_rs::{
     api::{
@@ -31,13 +31,14 @@ use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 // removed HandleErrorLayer-based mapping; ConcurrencyLimit is sufficient for now
-use axum::response::IntoResponse;
+// IntoResponse not used after removing custom middleware
 use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 // Removed rpassword import - no longer needed for startup
@@ -54,11 +55,7 @@ async fn run_http_server(state: AppState) {
 
     impl RateLimiter {
         fn new(window: Duration, max: usize) -> Self {
-            Self {
-                inner: Arc::new(Mutex::new(HashMap::new())),
-                window,
-                max,
-            }
+            Self { inner: Arc::new(Mutex::new(HashMap::new())), window, max }
         }
     }
 
@@ -80,11 +77,7 @@ async fn run_http_server(state: AppState) {
             let cutoff = now - limiter.window;
             entry.retain(|t| *t >= cutoff);
             if entry.len() >= limiter.max {
-                return (
-                    axum::http::StatusCode::TOO_MANY_REQUESTS,
-                    "Rate limit exceeded",
-                )
-                    .into_response();
+                return (axum::http::StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
             }
             entry.push(now);
         }
@@ -101,6 +94,7 @@ async fn run_http_server(state: AppState) {
         Duration::from_secs(state.config.faucet_rate_window_secs),
         state.config.faucet_rate_max,
     );
+
     let app = Router::new()
         .route("/api/health", get(health_handler))
         .route("/api/wallet/create", post(create_wallet_handler))
@@ -113,37 +107,21 @@ async fn run_http_server(state: AppState) {
         // Removed estimate_fees and other handlers for brevity, they would follow the same pattern.
         .route(
             "/api/faucet/request",
-            post(request_faucet).route_layer(middleware::from_fn_with_state(
-                faucet_limiter.clone(),
-                rate_limit_middleware,
-            )),
+            post(request_faucet).route_layer(middleware::from_fn_with_state(faucet_limiter.clone(), rate_limit_middleware)),
         )
         .route(
             "/api/tx/send",
-            post(send_transaction_handler).route_layer(middleware::from_fn_with_state(
-                tx_limiter.clone(),
-                rate_limit_middleware,
-            )),
+            post(send_transaction_handler).route_layer(middleware::from_fn_with_state(tx_limiter.clone(), rate_limit_middleware)),
         )
-        .route(
-            "/contract/:address/transactions",
-            get(get_contract_transactions_handler),
-        )
-        .with_state(state.clone())
+        .with_state(state.clone()) // Use the shared state
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
-        // Simple protection: limit concurrent requests
-        .layer(ConcurrencyLimitLayer::new(64));
+        ;
 
     let addr = SocketAddr::from(([127, 0, 0, 1], state.config.port));
     info!("🚀 HTTP Server listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .unwrap();
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
 }
 
 // --- MCP Server Logic ---
@@ -249,7 +227,6 @@ async fn main() {
         nonce_manager,
         wallet_storage: Arc::new(Mutex::new(storage)),
         wallet_storage_path: Arc::new(wallet_storage_path),
-        faucet_cooldowns: Arc::new(Mutex::new(HashMap::new())),
     };
 
     // Determine run mode

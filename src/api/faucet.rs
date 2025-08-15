@@ -3,7 +3,6 @@
 use crate::AppState; // FIX: Import AppState
 use axum::{extract::State, http::StatusCode, Json};
 use serde::Deserialize;
-use std::time::Instant;
 
 #[derive(Deserialize)]
 pub struct FaucetRequest {
@@ -37,22 +36,7 @@ pub async fn request_faucet(
         }
     };
 
-    // Enforce per-address cooldown (operator-configurable)
-    let key = format!("{}::{}", chain_id, req.address.to_lowercase());
-    let now = Instant::now();
-    let cooldown = std::time::Duration::from_secs(state.config.faucet_address_cooldown_secs);
-    {
-        let mut map = state.faucet_cooldowns.lock().await;
-        if let Some(last) = map.get(&key) {
-            if now.duration_since(*last) < cooldown {
-                return Err((
-                    StatusCode::TOO_MANY_REQUESTS,
-                    format!("Faucet cooldown active for this address. Try again later."),
-                ));
-            }
-        }
-        map.insert(key, now);
-    }
+    // Cooldowns and rate limits are enforced by the external faucet API now.
 
     let tx_hash = crate::blockchain::services::faucet::send_faucet_tokens(
         &state.config,

@@ -44,6 +44,26 @@ app.get('/', (_req, res) => {
   res.json({ ok: true, chains: CHAINS, rate: { RATE_WINDOW_SECS, RATE_MAX }, cooldown: COOLDOWN_SECS });
 });
 
+// Lightweight health endpoint with soft Redis check
+app.get('/health', async (_req, res) => {
+  const envSummary = {
+    hasRedisUrl: Boolean(process.env.REDIS_URL),
+    hasRpcEvm: Boolean(chainRpcUrls[CHAINS.evm]),
+    hasRpcNative: Boolean(chainRpcUrls[CHAINS.native]),
+  };
+  let redisStatus: 'up' | 'down' = 'down';
+  try {
+    if (process.env.REDIS_URL) {
+      const r = getRedis();
+      await r.ping();
+      redisStatus = 'up';
+    }
+  } catch {
+    redisStatus = 'down';
+  }
+  res.json({ ok: true, port: PORT, uptimeSecs: Math.floor(process.uptime()), redis: redisStatus, env: envSummary });
+});
+
 app.post('/faucet/request', async (req, res) => {
   const parse = bodySchema.safeParse(req.body);
   if (!parse.success) {
@@ -53,16 +73,28 @@ app.post('/faucet/request', async (req, res) => {
 
   const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.socket.remoteAddress || 'unknown';
 
+  console.log('faucet_request_in', { chain, ip, addressMasked: address.slice(0, 6) + '...' + address.slice(-4) });
+
   // Basic rate limiting per IP
   try {
     await ensureRateLimit(ip);
   } catch (err: any) {
+    if (err?.code === 'redis_unavailable') {
+      console.error('rate_limit_skipped_redis_unavailable');
+      return res.status(503).json({ error: 'redis_unavailable' });
+    }
     return res.status(429).json({ error: 'rate_limited', retryAfterSecs: err?.retryAfterSecs ?? RATE_WINDOW_SECS });
   }
 
   // Address cooldown per chain
   const cooldownKey = `cooldown:${chain}:${address.toLowerCase()}`;
-  const redis = getRedis();
+  let redis;
+  try {
+    redis = getRedis();
+  } catch (e) {
+    console.error('cooldown_check_redis_unavailable');
+    return res.status(503).json({ error: 'redis_unavailable' });
+  }
   const ttl = await redis.ttl(cooldownKey);
   if (ttl > 0) {
     const retryAt = new Date(Date.now() + ttl * 1000).toISOString();
@@ -98,7 +130,9 @@ app.post('/faucet/request', async (req, res) => {
     // Set cooldown
     await redis.set(cooldownKey, '1', 'EX', COOLDOWN_SECS);
 
-    return res.json({ txHash: result.txHash, amount: AMOUNT_USEI, denom: DENOM, chain });
+    const resp = { txHash: result.txHash, amount: AMOUNT_USEI, denom: DENOM, chain };
+    console.log('faucet_request_success', { chain, txHash: result.txHash });
+    return res.json(resp);
   } catch (err: any) {
     console.error('faucet_error', { err });
     return res.status(500).json({ error: 'faucet_failed', message: err?.message || String(err) });
@@ -106,21 +140,40 @@ app.post('/faucet/request', async (req, res) => {
 });
 
 app.listen(PORT, () => {
+  const envSummary = {
+    hasRedisUrl: Boolean(process.env.REDIS_URL),
+    hasRpcEvm: Boolean(chainRpcUrls[CHAINS.evm]),
+    hasRpcNative: Boolean(chainRpcUrls[CHAINS.native]),
+  };
   console.log(`Faucet API listening on :${PORT}`);
+  console.log('env_summary', envSummary);
 });
 
 async function ensureRateLimit(ip: string) {
-  const redis = getRedis();
-  const key = `ratelimit:${ip}`;
-  const current = await redis.incr(key);
-  if (current === 1) {
-    await redis.expire(key, RATE_WINDOW_SECS);
+  let redis;
+  try {
+    redis = getRedis();
+  } catch (e) {
+    const err: any = new Error('redis_unavailable');
+    err.code = 'redis_unavailable';
+    throw err;
   }
-  if (current > RATE_MAX) {
-    const ttl = await redis.ttl(key);
-    const retryAfterSecs = ttl > 0 ? ttl : RATE_WINDOW_SECS;
-    const err: any = new Error('rate_limited');
-    err.retryAfterSecs = retryAfterSecs;
+  try {
+    const key = `ratelimit:${ip}`;
+    const current = await redis.incr(key);
+    if (current === 1) {
+      await redis.expire(key, RATE_WINDOW_SECS);
+    }
+    if (current > RATE_MAX) {
+      const ttl = await redis.ttl(key);
+      const retryAfterSecs = ttl > 0 ? ttl : RATE_WINDOW_SECS;
+      const err: any = new Error('rate_limited');
+      err.retryAfterSecs = retryAfterSecs;
+      throw err;
+    }
+  } catch (e) {
+    const err: any = new Error('redis_unavailable');
+    err.code = 'redis_unavailable';
     throw err;
   }
 }

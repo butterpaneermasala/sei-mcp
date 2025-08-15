@@ -134,8 +134,8 @@ pub async fn send_native_transaction(
     _nonce_manager: &crate::blockchain::nonce_manager::NonceManager,
 ) -> Result<String> {
     // Compose the Cosmos SDK tx message
-    let sender_address = &config.faucet_address; // Use the correct field from config
-    let denom = &config.faucet_denom;
+    let sender_address = &config.default_sender_address; // optional default sender
+    let denom = &config.native_denom;
     let msg = serde_json::json!({
         "type": "cosmos-sdk/MsgSend",
         "value": {
@@ -154,9 +154,9 @@ pub async fn send_native_transaction(
         "fee": {
             "amount": [{
                 "denom": denom,
-                "amount": config.faucet_fee_amount.to_string()
+                "amount": config.native_fee_amount.to_string()
             }],
-            "gas": config.faucet_gas_limit.to_string()
+            "gas": config.native_gas_limit.to_string()
         },
         "signatures": null,
         "memo": ""
@@ -223,7 +223,7 @@ pub async fn send_native_transaction_signed(
     let msg = MsgSend {
         from_address: from_address.clone(),
         to_address: to_address.to_string(),
-        amount: vec![Coin { denom: config.faucet_denom.clone(), amount: amount_usei.to_string() }],
+        amount: vec![Coin { denom: config.native_denom.clone(), amount: amount_usei.to_string() }],
     };
     let any_msg = Any {
         type_url: "/cosmos.bank.v1beta1.MsgSend".to_string(),
@@ -234,9 +234,9 @@ pub async fn send_native_transaction_signed(
     let body = Body::new(vec![any_msg], "", 0u32);
 
     // Fee
-    let fee_amount = cosmrs::Coin::new(config.faucet_fee_amount as u128, &config.faucet_denom)
+    let fee_amount = cosmrs::Coin::new(config.native_fee_amount as u128, &config.native_denom)
         .map_err(|e| anyhow!("invalid fee coin: {}", e))?;
-    let fee = Fee::from_amount_and_gas(fee_amount, config.faucet_gas_limit);
+    let fee = Fee::from_amount_and_gas(fee_amount, config.native_gas_limit);
 
     // Signer info
     let signer_info = SignerInfo::single_direct(Some(public_key), sequence);
@@ -286,13 +286,13 @@ pub async fn send_transaction(
             use ethers_signers::LocalWallet;
             use std::str::FromStr;
 
-            let wallet = LocalWallet::from_str(&config.faucet_private_key_evm)
+            let wallet = LocalWallet::from_str(&config.tx_private_key_evm)
                 .context("Failed to load sender wallet from private key")?;
             let recipient = Address::from_str(recipient_address)
                 .context("Invalid recipient EVM address format")?;
             let value = U256::from(amount);
-            let gas_limit = U256::from(config.faucet_gas_limit);
-            let gas_price = U256::from(config.faucet_fee_amount);
+            let gas_limit = U256::from(config.native_gas_limit);
+            let gas_price = U256::from(config.native_fee_amount);
 
             let tx_request = TransactionRequest::new()
                 .to(recipient)

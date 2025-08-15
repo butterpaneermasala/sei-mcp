@@ -3,7 +3,7 @@
 use crate::blockchain::{
     models::*,
     nonce_manager::NonceManager,
-    services::{balance, contract, event, fees, history, transactions, wallet},
+    services::{balance, fees, history, transactions, wallet, event},
 };
 use anyhow::{anyhow, Result};
 use ethers_core::types::TransactionRequest;
@@ -104,28 +104,8 @@ impl SeiClient {
     }
 
     // FIX: New EVM-native event search
-    pub async fn search_events_evm(
-        &self,
-        chain_id: &str,
-        query: EventQuery,
-    ) -> Result<Vec<crate::blockchain::models::SearchEventsResponse>> {
+    pub async fn search_events_evm(&self, chain_id: &str, query: EventQuery) -> Result<Vec<crate::blockchain::models::SearchEventsResponse>> {
         let result = event::search_events_evm(self, chain_id, query).await?;
         Ok(vec![result])
-    }
-
-    pub async fn get_contract(&self, _chain_id: &str, address: &str) -> Result<Contract> {
-        contract::get_contract(&self.client, address).await
-    }
-
-    pub async fn get_contract_code(&self, _chain_id: &str, address: &str) -> Result<ContractCode> {
-        contract::get_contract_code(&self.client, address).await
-    }
-
-    pub async fn get_contract_transactions(
-        &self,
-        _chain_id: &str,
-        address: &str,
-    ) -> Result<ContractTransactionsResponse> {
-        contract::get_contract_transactions(&self.client, address).await
     }
 }
