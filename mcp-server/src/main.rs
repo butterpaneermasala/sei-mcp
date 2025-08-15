@@ -1,22 +1,15 @@
 // src/main.rs
 
-use axum::{
-    extract::{ConnectInfo, State},
-    middleware,
-};
 use axum::{routing::get, routing::post, Router};
-use axum::{middleware, extract::{ConnectInfo, State}};
 use sei_mcp_server_rs::AppState;
 use sei_mcp_server_rs::{
     api::{
         balance::get_balance_handler,
-        contract::{
-            get_contract_transactions_handler,
-        },
         faucet::request_faucet,
         health::health_handler,
         history::get_transaction_history_handler,
         tx::send_transaction_handler,
+        wallet::{create_wallet_handler, import_wallet_handler},
     },
     blockchain::client::SeiClient,
     blockchain::nonce_manager::NonceManager,
@@ -27,74 +20,19 @@ use sei_mcp_server_rs::{
         protocol::{error_codes, Request, Response},
     },
 };
-use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
-use tower::limit::ConcurrencyLimitLayer;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
-// removed HandleErrorLayer-based mapping; ConcurrencyLimit is sufficient for now
-// IntoResponse not used after removing custom middleware
+// removed HandleErrorLayer-based mapping; ConcurrencyLimit is not used
 use tracing::{debug, error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 // Removed rpassword import - no longer needed for startup
 
 // --- HTTP Server Logic ---
 async fn run_http_server(state: AppState) {
-    // Simple in-memory per-IP rate limiter state
-    #[derive(Clone)]
-    struct RateLimiter {
-        inner: Arc<Mutex<HashMap<String, Vec<Instant>>>>,
-        window: Duration,
-        max: usize,
-    }
-
-    impl RateLimiter {
-        fn new(window: Duration, max: usize) -> Self {
-            Self { inner: Arc::new(Mutex::new(HashMap::new())), window, max }
-        }
-    }
-
-    async fn rate_limit_middleware(
-        State(limiter): State<RateLimiter>,
-        ConnectInfo(addr): ConnectInfo<SocketAddr>,
-        req: axum::http::Request<axum::body::Body>,
-        next: axum::middleware::Next,
-    ) -> impl axum::response::IntoResponse {
-        let path = req.uri().path().to_string();
-        let ip = addr.ip().to_string();
-        let key = format!("{}::{}", path, ip);
-        let now = Instant::now();
-
-        {
-            let mut map = limiter.inner.lock().await;
-            let entry = map.entry(key).or_default();
-            // prune old
-            let cutoff = now - limiter.window;
-            entry.retain(|t| *t >= cutoff);
-            if entry.len() >= limiter.max {
-                return (axum::http::StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
-            }
-            entry.push(now);
-        }
-
-        next.run(req).await
-    }
-
-    // Build separate limiters from config
-    let tx_limiter = RateLimiter::new(
-        Duration::from_secs(state.config.tx_rate_window_secs),
-        state.config.tx_rate_max,
-    );
-    let faucet_limiter = RateLimiter::new(
-        Duration::from_secs(state.config.faucet_rate_window_secs),
-        state.config.faucet_rate_max,
-    );
-
     let app = Router::new()
         .route("/api/health", get(health_handler))
         .route("/api/wallet/create", post(create_wallet_handler))
@@ -104,15 +42,8 @@ async fn run_http_server(state: AppState) {
             "/api/history/:chain_id/:address",
             get(get_transaction_history_handler),
         )
-        // Removed estimate_fees and other handlers for brevity, they would follow the same pattern.
-        .route(
-            "/api/faucet/request",
-            post(request_faucet).route_layer(middleware::from_fn_with_state(faucet_limiter.clone(), rate_limit_middleware)),
-        )
-        .route(
-            "/api/tx/send",
-            post(send_transaction_handler).route_layer(middleware::from_fn_with_state(tx_limiter.clone(), rate_limit_middleware)),
-        )
+        .route("/api/faucet/request", post(request_faucet))
+        .route("/api/tx/send", post(send_transaction_handler))
         .with_state(state.clone()) // Use the shared state
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())

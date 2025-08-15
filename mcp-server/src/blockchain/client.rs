@@ -8,6 +8,7 @@ use crate::blockchain::{
 use anyhow::{anyhow, Result};
 use ethers_core::types::TransactionRequest;
 use std::collections::HashMap;
+use serde_json::Value;
 
 #[derive(Clone)]
 pub struct SeiClient {
@@ -103,9 +104,16 @@ impl SeiClient {
         .await
     }
 
-    // FIX: New EVM-native event search
-    pub async fn search_events_evm(&self, chain_id: &str, query: EventQuery) -> Result<Vec<crate::blockchain::models::SearchEventsResponse>> {
-        let result = event::search_events_evm(self, chain_id, query).await?;
-        Ok(vec![result])
+    // --- Contract inspection stubs (not implemented) ---
+    pub async fn get_contract(&self, _chain_id: &str, _address: &str) -> Result<Value> {
+        Err(anyhow!("get_contract not implemented"))
+    }
+
+    pub async fn get_contract_code(&self, _chain_id: &str, _address: &str) -> Result<Value> {
+        Err(anyhow!("get_contract_code not implemented"))
+    }
+
+    pub async fn get_contract_transactions(&self, _chain_id: &str, _address: &str) -> Result<Value> {
+        Err(anyhow!("get_contract_transactions not implemented"))
     }
 }
