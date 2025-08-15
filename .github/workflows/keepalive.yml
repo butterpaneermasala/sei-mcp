@@ -1,0 +1,34 @@
+name: Keep Render Awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"  # every 10 minutes
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    env:
+      HEALTH_URL: ${{ secrets.RENDER_HEALTH_URL }}
+    steps:
+      - name: Validate configuration
+        run: |
+          if [ -z "${HEALTH_URL}" ]; then
+            echo "RENDER_HEALTH_URL secret is not set."
+            echo "Set it to your https://<your-app>.onrender.com/health URL in GitHub -> Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+      - name: Ping health endpoint (with retries)
+        run: |
+          set -e
+          for i in 1 2 3; do
+            echo "Attempt $i: curling ${HEALTH_URL}"
+            if curl -fsS -m 10 -A "keepalive-gha/1.0" "$HEALTH_URL" > /dev/null; then
+              echo "Success"
+              exit 0
+            fi
+            echo "Attempt $i failed; retrying in 5s..."
+            sleep 5
+          done
+          echo "All attempts failed"
+          exit 1
