@@ -1,0 +1,74 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    defaults:
+      run:
+        working-directory: mcp-server
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo build (release)
+        run: cargo build --release
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          BIN_NAME=sei-mcp-server-rs
+          OS="${{ runner.os }}"
+          case "$OS" in
+            Linux)  OS_SLUG=linux ; EXT="" ; ;;
+            macOS)  OS_SLUG=macos ; EXT="" ; ;;
+            Windows) OS_SLUG=windows ; EXT=".exe" ; ;;
+            *) echo "Unsupported OS: $OS" >&2 ; exit 1 ;;
+          esac
+
+          # Detect architecture
+          ARCH_RAW="$(uname -m)"
+          case "$ARCH_RAW" in
+            x86_64|amd64) ARCH_SLUG=x86_64 ; ;;
+            aarch64|arm64) ARCH_SLUG=arm64 ; ;;
+            *) echo "Unsupported arch: $ARCH_RAW" >&2 ; exit 1 ;;
+          esac
+
+          mkdir -p dist
+          cp target/release/${BIN_NAME}${EXT} dist/
+          cd dist
+
+          # Name without version so install script can use /latest/download
+          if [ "$OS_SLUG" = "windows" ]; then
+            ART="${BIN_NAME}-${OS_SLUG}-${ARCH_SLUG}.zip"
+            7z a "$ART" "${BIN_NAME}${EXT}"
+          else
+            ART="${BIN_NAME}-${OS_SLUG}-${ARCH_SLUG}.tar.gz"
+            tar -czf "$ART" "${BIN_NAME}"
+          fi
+
+      - name: Create GitHub Release and Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            mcp-server/dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
