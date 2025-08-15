@@ -18,17 +18,58 @@ jobs:
             echo "Set it to your https://<your-app>.onrender.com/health URL in GitHub -> Settings -> Secrets and variables -> Actions."
             exit 1
           fi
-      - name: Ping health endpoint (with retries)
+      - name: Derive base URL
+        id: derive
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="${HEALTH_URL}"
+          # Strip trailing / if present
+          url_no_trailing=${url%/}
+          # Derive base by removing /health if it is the suffix
+          base=${url_no_trailing%/health}
+          if [ "$base" = "$url_no_trailing" ]; then
+            # No /health suffix; use the original as both
+            base="$url_no_trailing"
+            health="$url_no_trailing"
+          else
+            health="$url_no_trailing"
+          fi
+          echo "Base URL: $base"
+          echo "Health URL: $health"
+          echo "base=$base" >> $GITHUB_OUTPUT
+          echo "health=$health" >> $GITHUB_OUTPUT
+      - name: Ping endpoints (with retries and backoff)
+        env:
+          BASE_URL: ${{ steps.derive.outputs.base }}
+          HEALTH: ${{ steps.derive.outputs.health }}
         run: |
           set -e
-          for i in 1 2 3; do
-            echo "Attempt $i: curling ${HEALTH_URL}"
-            if curl -fsS -m 10 -A "keepalive-gha/1.0" "$HEALTH_URL" > /dev/null; then
-              echo "Success"
+          echo "Targets: BASE=${BASE_URL} HEALTH=${HEALTH}"
+          max_attempts=15
+          delay=5
+          for i in $(seq 1 $max_attempts); do
+            echo "Attempt $i/${max_attempts}: warming BASE (${BASE_URL})"
+            status_base=$(curl -A "keepalive-gha/1.2" -s -o /dev/null -w "%{http_code}" --max-time 30 -L "${BASE_URL}") || true
+            echo "BASE HTTP ${status_base}"
+            if [ "$status_base" -ge 200 ] && [ "$status_base" -lt 400 ]; then
+              echo "BASE ok"
+            else
+              echo "BASE not ready (${status_base})"
+            fi
+            echo "Attempt $i/${max_attempts}: checking HEALTH (${HEALTH})"
+            status_health=$(curl -A "keepalive-gha/1.2" -s -o /dev/null -w "%{http_code}" --max-time 30 -L "${HEALTH}") || true
+            echo "HEALTH HTTP ${status_health}"
+            if [ "$status_health" -ge 200 ] && [ "$status_health" -lt 400 ]; then
+              echo "Health check success"
               exit 0
             fi
-            echo "Attempt $i failed; retrying in 5s..."
-            sleep 5
+            echo "Not ready yet (BASE=${status_base}, HEALTH=${status_health}). Backing off for ${delay}s..."
+            sleep $delay
+            if [ $delay -lt 60 ]; then
+              delay=$((delay * 2))
+              if [ $delay -gt 60 ]; then delay=60; fi
+            fi
           done
           echo "All attempts failed"
           exit 1

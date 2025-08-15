@@ -55,7 +55,12 @@ app.get('/health', async (_req, res) => {
   try {
     if (process.env.REDIS_URL) {
       const r = getRedis();
-      await r.ping();
+      // Ensure health stays snappy: bound Redis ping with a 1s timeout
+      const ping = r.ping();
+      await Promise.race([
+        ping,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('redis_ping_timeout')), 1000)),
+      ]);
       redisStatus = 'up';
     }
   } catch {
