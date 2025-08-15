@@ -4,7 +4,6 @@
   "private": false,
   "description": "Sei faucet HTTP API for EVM testnet and native (Cosmos) with cooldown and rate limiting.",
   "license": "Apache-2.0",
-  "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc -p .",
