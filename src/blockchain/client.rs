@@ -3,7 +3,7 @@
 use crate::blockchain::{
     models::*,
     nonce_manager::NonceManager,
-    services::{balance, fees, history, transactions, wallet, event},
+    services::{balance, contract, event, fees, history, transactions, wallet},
 };
 use anyhow::{anyhow, Result};
 use ethers_core::types::TransactionRequest;
@@ -33,7 +33,8 @@ impl SeiClient {
 
     pub async fn get_balance(&self, chain_id: &str, address: &str) -> Result<BalanceResponse> {
         let rpc_url = self.get_rpc_url(chain_id)?;
-        let is_native = crate::blockchain::models::ChainType::from_chain_id(chain_id) == crate::blockchain::models::ChainType::Native;
+        let is_native = crate::blockchain::models::ChainType::from_chain_id(chain_id)
+            == crate::blockchain::models::ChainType::Native;
         balance::get_balance(&self.client, rpc_url, address, is_native).await
     }
 
@@ -45,14 +46,23 @@ impl SeiClient {
         wallet::import_wallet(input)
     }
 
-    pub async fn get_transaction_history(&self, chain_id: &str, address: &str, limit: u64) -> Result<TransactionHistoryResponse> {
+    pub async fn get_transaction_history(
+        &self,
+        chain_id: &str,
+        address: &str,
+        limit: u64,
+    ) -> Result<TransactionHistoryResponse> {
         if chain_id != "sei" && chain_id != "sei-testnet" {
             return Err(anyhow!("Transaction history via Seistream API is only supported for 'sei' and 'sei-testnet' chains."));
         }
         history::get_transaction_history(&self.client, address, limit).await
     }
 
-    pub async fn estimate_fees(&self, chain_id: &str, request: &EstimateFeesRequest) -> Result<EstimateFeesResponse> {
+    pub async fn estimate_fees(
+        &self,
+        chain_id: &str,
+        request: &EstimateFeesRequest,
+    ) -> Result<EstimateFeesResponse> {
         let rpc_url = self.get_rpc_url(chain_id)?;
         fees::estimate_fees(&self.client, rpc_url, request).await
     }
@@ -71,21 +81,51 @@ impl SeiClient {
     }
 
     // FIX: Transfer SEI tokens method
-    pub async fn transfer_sei(&self, chain_id: &str, request: &crate::blockchain::models::SeiTransferRequest) -> Result<crate::blockchain::models::TransactionResponse> {
+    pub async fn transfer_sei(
+        &self,
+        chain_id: &str,
+        request: &crate::blockchain::models::SeiTransferRequest,
+    ) -> Result<crate::blockchain::models::TransactionResponse> {
         let _rpc_url = self.get_rpc_url(chain_id)?;
-        
+
         // Convert to TransactionRequest for EVM transaction
         let tx_request = TransactionRequest::new()
             .to(request.to_address.parse::<ethers_core::types::Address>()?)
             .value(ethers_core::types::U256::from_dec_str(&request.amount)?);
-        
+
         // Use the centralized send_transaction method
-        self.send_transaction(chain_id, &request.private_key, tx_request, &crate::blockchain::nonce_manager::NonceManager::new()).await
+        self.send_transaction(
+            chain_id,
+            &request.private_key,
+            tx_request,
+            &crate::blockchain::nonce_manager::NonceManager::new(),
+        )
+        .await
     }
 
     // FIX: New EVM-native event search
-    pub async fn search_events_evm(&self, chain_id: &str, query: EventQuery) -> Result<Vec<crate::blockchain::models::SearchEventsResponse>> {
+    pub async fn search_events_evm(
+        &self,
+        chain_id: &str,
+        query: EventQuery,
+    ) -> Result<Vec<crate::blockchain::models::SearchEventsResponse>> {
         let result = event::search_events_evm(self, chain_id, query).await?;
         Ok(vec![result])
+    }
+
+    pub async fn get_contract(&self, _chain_id: &str, address: &str) -> Result<Contract> {
+        contract::get_contract(&self.client, address).await
+    }
+
+    pub async fn get_contract_code(&self, _chain_id: &str, address: &str) -> Result<ContractCode> {
+        contract::get_contract_code(&self.client, address).await
+    }
+
+    pub async fn get_contract_transactions(
+        &self,
+        _chain_id: &str,
+        address: &str,
+    ) -> Result<ContractTransactionsResponse> {
+        contract::get_contract_transactions(&self.client, address).await
     }
 }

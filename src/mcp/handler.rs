@@ -1,18 +1,21 @@
 // src/mcp/handler.rs
 
+use crate::blockchain::models::ChainType;
 use crate::{
-    AppState,
+    blockchain::{
+        models::WalletResponse,
+        services::{transactions, wallet},
+    },
     mcp::{
         protocol::{error_codes, Request, Response},
         wallet_storage,
     },
-    blockchain::{models::WalletResponse, services::{wallet, transactions}},
+    utils, AppState,
 };
-use ethers_core::types::{Address, TransactionRequest, U256, Bytes};
-use ethers_core::utils::keccak256;
 use ethers_core::abi::{encode, Token};
+use ethers_core::types::{Address, Bytes, TransactionRequest, U256};
+use ethers_core::utils::keccak256;
 use ethers_signers::{LocalWallet, Signer};
-use crate::blockchain::models::ChainType;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde_json::{from_value, json, Value};
@@ -26,11 +29,18 @@ pub fn normalize_chain_id(input: &str) -> String {
     // Replace common separators with '-'
     s = s.replace([' ', '_'], "-");
     // Collapse multiple dashes
-    while s.contains("--") { s = s.replace("--", "-"); }
+    while s.contains("--") {
+        s = s.replace("--", "-");
+    }
 
     // Common aliases for EVM networks
     // Accept: sei-testnet, sei-evm-testnet, sei evm testnet, sei_testnet, etc.
-    if s == "sei-testnet" || s == "sei-evm-testnet" || s == "sei-evm-test" || s == "sei-evm-t" || s == "sei-evm" {
+    if s == "sei-testnet"
+        || s == "sei-evm-testnet"
+        || s == "sei-evm-test"
+        || s == "sei-evm-t"
+        || s == "sei-evm"
+    {
         return "sei-evm-testnet".to_string();
     }
     if s == "sei-mainnet" || s == "sei-evm-mainnet" || s == "sei-evm-main" || s == "sei-main" {
@@ -38,7 +48,11 @@ pub fn normalize_chain_id(input: &str) -> String {
     }
 
     // Native aliases
-    if s == "atlantic-2" || s == "sei-native-testnet" || s == "sei-native" || s == "sei-testnet-native" {
+    if s == "atlantic-2"
+        || s == "sei-native-testnet"
+        || s == "sei-native"
+        || s == "sei-testnet-native"
+    {
         return "atlantic-2".to_string();
     }
     if s == "pacific-1" || s == "sei-native-mainnet" || s == "sei-mainnet-native" {
@@ -48,21 +62,7 @@ pub fn normalize_chain_id(input: &str) -> String {
     s
 }
 
-// FIX: A helper function for safe argument parsing.
-// It returns a proper JSON-RPC error response if a required argument is missing or invalid.
-fn get_required_arg<T: DeserializeOwned>(
-    args: &Value,
-    name: &str,
-    req_id: &Value,
-) -> Result<T, Response> {
-    from_value(args[name].clone()).map_err(|_| {
-        Response::error(
-            req_id.clone(),
-            error_codes::INVALID_PARAMS,
-            format!("Missing or invalid required argument: '{}'", name),
-        )
-    })
-}
+// Use the get_required_arg from utils module
 
 // Helper: produce a result Value that always contains a text content array
 // and preserves structured data for JSON-friendly clients.
@@ -97,7 +97,8 @@ pub async fn handle_mcp_request(req: Request, state: AppState) -> Option<Respons
         "tools/call" => handle_tool_call(req, state).await,
         // Convenience aliases to support direct method calls from CLI
         // They are rewritten into tools/call internally to reuse the same logic
-        "get_balance" | "request_faucet" | "transfer_evm" | "transfer_sei" | "transfer_nft_evm" | "search_events" => {
+        "get_balance" | "request_faucet" | "transfer_evm" | "transfer_sei" | "transfer_nft_evm"
+        | "search_events" => {
             let name = req.method.clone();
             let wrapped = Request {
                 jsonrpc: req.jsonrpc.clone(),
@@ -124,12 +125,24 @@ pub async fn handle_mcp_request(req: Request, state: AppState) -> Option<Respons
 async fn handle_tool_call(req: Request, state: AppState) -> Response {
     let params = match req.params.as_ref() {
         Some(p) => p,
-        None => return Response::error(req.id, error_codes::INVALID_PARAMS, "Missing 'params' object".into()),
+        None => {
+            return Response::error(
+                req.id,
+                error_codes::INVALID_PARAMS,
+                "Missing 'params' object".into(),
+            )
+        }
     };
 
     let tool_name = match params.get("name").and_then(|n| n.as_str()) {
         Some(name) => name,
-        None => return Response::error(req.id, error_codes::INVALID_PARAMS, "Missing 'name' field in params".into()),
+        None => {
+            return Response::error(
+                req.id,
+                error_codes::INVALID_PARAMS,
+                "Missing 'name' field in params".into(),
+            )
+        }
     };
 
     let empty_args = json!({});
@@ -141,25 +154,35 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
     match tool_name {
         "get_balance" => {
             let res: Result<Response, Response> = (async {
-                let address = get_required_arg::<String>(args, "address", req_id)?;
-                let mut chain_id = get_required_arg::<String>(args, "chain_id", req_id)?;
+                let address = utils::get_required_arg::<String>(args, "address", req_id)?;
+                let mut chain_id = utils::get_required_arg::<String>(args, "chain_id", req_id)?;
                 chain_id = normalize_chain_id(&chain_id);
                 let rpc_url = match state.config.chain_rpc_urls.get(&chain_id) {
                     Some(u) => u,
                     None => {
-                        let keys: Vec<String> = state.config.chain_rpc_urls.keys().cloned().collect();
+                        let keys: Vec<String> =
+                            state.config.chain_rpc_urls.keys().cloned().collect();
                         return Err(Response::error(
                             req_id.clone(),
                             error_codes::INVALID_PARAMS,
-                            format!("RPC URL not configured for chain_id '{}'. Available: {}", chain_id, keys.join(", ")),
+                            format!(
+                                "RPC URL not configured for chain_id '{}'. Available: {}",
+                                chain_id,
+                                keys.join(", ")
+                            ),
                         ));
                     }
                 };
                 let chain_type = ChainType::from_chain_id(&chain_id);
                 let client = Client::new();
                 let is_native = matches!(chain_type, ChainType::Native);
-                let balance = crate::blockchain::services::balance::get_balance(&client, rpc_url, &address, is_native).await
-                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                let balance = crate::blockchain::services::balance::get_balance(
+                    &client, rpc_url, &address, is_native,
+                )
+                .await
+                .map_err(|e| {
+                    Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                })?;
                 let debug_info = json!({
                     "chain_id_normalized": chain_id,
                     "rpc_url": rpc_url,
@@ -181,9 +204,10 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                         "content": [
                             { "type": "text", "text": balance_text }
                         ]
-                    })
+                    }),
                 ))
-            }).await;
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
@@ -197,49 +221,87 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
 
         "import_wallet" => {
             let res: Result<Response, Response> = (async {
-                let key = get_required_arg::<String>(args, "mnemonic_or_private_key", req_id)?;
-                let wallet = state.sei_client.import_wallet(&key).await
-                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                let key = utils::get_required_arg::<String>(args, "key", req_id)?;
+                let wallet = state.sei_client.import_wallet(&key).await.map_err(|e| {
+                    Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                })?;
                 let summary = format!("Imported wallet {}", wallet.address);
-                Ok(Response::success(req_id.clone(), make_texty_result(summary, json!(wallet))))
-            }).await;
+                Ok(Response::success(
+                    req_id.clone(),
+                    make_texty_result(summary, json!(wallet)),
+                ))
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
         "request_faucet" => {
             let res: Result<Response, Response> = (async {
-                let address = get_required_arg::<String>(args, "address", req_id)?;
-                let mut chain_id = get_required_arg::<String>(args, "chain_id", req_id)?;
+                let address = utils::get_required_arg::<String>(args, "address", req_id)?;
+                let mut chain_id = utils::get_required_arg::<String>(args, "chain_id", req_id)?;
                 chain_id = normalize_chain_id(&chain_id);
                 let rpc_url = match state.config.chain_rpc_urls.get(&chain_id) {
                     Some(u) => u,
                     None => {
-                        let keys: Vec<String> = state.config.chain_rpc_urls.keys().cloned().collect();
+                        let keys: Vec<String> =
+                            state.config.chain_rpc_urls.keys().cloned().collect();
                         return Err(Response::error(
                             req_id.clone(),
                             error_codes::INVALID_PARAMS,
-                            format!("RPC URL not configured for chain_id '{}'. Available: {}", chain_id, keys.join(", ")),
+                            format!(
+                                "RPC URL not configured for chain_id '{}'. Available: {}",
+                                chain_id,
+                                keys.join(", ")
+                            ),
                         ));
                     }
                 };
-                let tx_hash = crate::blockchain::services::faucet::send_faucet_tokens(&state.config, &address, &state.nonce_manager, rpc_url, &chain_id).await
-                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                let tx_hash = crate::blockchain::services::faucet::send_faucet_tokens(
+                    &state.config,
+                    &address,
+                    &state.nonce_manager,
+                    rpc_url,
+                    &chain_id,
+                )
+                .await
+                .map_err(|e| {
+                    Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                })?;
                 let payload = json!({ "transaction_hash": tx_hash });
                 let summary = format!("Faucet sent tokens: tx {}", tx_hash);
-                Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
-            }).await;
+                Ok(Response::success(
+                    req_id.clone(),
+                    make_texty_result(summary, payload),
+                ))
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
         // --- Event tools ---
         "search_events" => {
             let res: Result<Response, Response> = (async {
-                let chain_id = get_required_arg::<String>(args, "chain_id", req_id)?;
+                let chain_id = utils::get_required_arg::<String>(args, "chain_id", req_id)?;
                 match ChainType::from_chain_id(&chain_id) {
                     ChainType::Evm => {
-                        let rpc_url = state.config.chain_rpc_urls.get(&chain_id)
-                            .ok_or_else(|| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, format!("RPC URL not configured for chain_id '{}'", chain_id)))?;
-                        let address = args.get("contract_address").and_then(|v| v.as_str()).ok_or_else(|| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Missing 'contract_address'".into()))?;
+                        let rpc_url =
+                            state.config.chain_rpc_urls.get(&chain_id).ok_or_else(|| {
+                                Response::error(
+                                    req_id.clone(),
+                                    error_codes::INVALID_PARAMS,
+                                    format!("RPC URL not configured for chain_id '{}'", chain_id),
+                                )
+                            })?;
+                        let address = args
+                            .get("contract_address")
+                            .and_then(|v| v.as_str())
+                            .ok_or_else(|| {
+                                Response::error(
+                                    req_id.clone(),
+                                    error_codes::INVALID_PARAMS,
+                                    "Missing 'contract_address'".into(),
+                                )
+                            })?;
                         let from_block = args.get("from_block").and_then(|v| v.as_str());
                         let to_block = args.get("to_block").and_then(|v| v.as_str());
                         let topic0 = args.get("topic0").and_then(|v| v.as_str());
@@ -247,16 +309,31 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                         // Helper to normalize block tags: accept hex tags (latest/earliest/pending) or decimal block numbers.
                         fn normalize_block_tag(tag: &str) -> String {
                             let t = tag.trim();
-                            if t == "latest" || t == "earliest" || t == "pending" || t.starts_with("0x") { return t.to_string(); }
+                            if t == "latest"
+                                || t == "earliest"
+                                || t == "pending"
+                                || t.starts_with("0x")
+                            {
+                                return t.to_string();
+                            }
                             // Try parse as decimal number
-                            if let Ok(n) = u64::from_str_radix(t, 10) { return format!("0x{:x}", n); }
+                            if let Ok(n) = u64::from_str_radix(t, 10) {
+                                return format!("0x{:x}", n);
+                            }
                             t.to_string()
                         }
 
                         let mut filter = serde_json::json!({ "address": address });
-                        if let Some(fb) = from_block { filter["fromBlock"] = serde_json::Value::String(normalize_block_tag(fb)); }
-                        if let Some(tb) = to_block { filter["toBlock"] = serde_json::Value::String(normalize_block_tag(tb)); }
-                        if let Some(t0) = topic0 { filter["topics"] = serde_json::json!([t0]); }
+                        if let Some(fb) = from_block {
+                            filter["fromBlock"] =
+                                serde_json::Value::String(normalize_block_tag(fb));
+                        }
+                        if let Some(tb) = to_block {
+                            filter["toBlock"] = serde_json::Value::String(normalize_block_tag(tb));
+                        }
+                        if let Some(t0) = topic0 {
+                            filter["topics"] = serde_json::json!([t0]);
+                        }
 
                         let payload = serde_json::json!({
                             "jsonrpc": "2.0",
@@ -265,25 +342,52 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                             "id": 1
                         });
                         let client = Client::new();
-                        let resp: serde_json::Value = client.post(rpc_url).json(&payload).send().await
-                            .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, format!("RPC error: {}", e)))?
-                            .json().await
-                            .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, format!("Invalid RPC JSON: {}", e)))?;
+                        let resp: serde_json::Value = client
+                            .post(rpc_url)
+                            .json(&payload)
+                            .send()
+                            .await
+                            .map_err(|e| {
+                                Response::error(
+                                    req_id.clone(),
+                                    error_codes::INTERNAL_ERROR,
+                                    format!("RPC error: {}", e),
+                                )
+                            })?
+                            .json()
+                            .await
+                            .map_err(|e| {
+                                Response::error(
+                                    req_id.clone(),
+                                    error_codes::INTERNAL_ERROR,
+                                    format!("Invalid RPC JSON: {}", e),
+                                )
+                            })?;
                         if let Some(err) = resp.get("error") {
-                            return Err(Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, format!("RPC error: {}", err)));
+                            return Err(Response::error(
+                                req_id.clone(),
+                                error_codes::INTERNAL_ERROR,
+                                format!("RPC error: {}", err),
+                            ));
                         }
                         // Wrap logs with a summary text
                         let logs = resp["result"].clone();
                         let count = logs.as_array().map(|a| a.len()).unwrap_or(0);
                         let payload = json!({ "logs": logs });
                         let summary = format!("Found {} log(s)", count);
-                        Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
+                        Ok(Response::success(
+                            req_id.clone(),
+                            make_texty_result(summary, payload),
+                        ))
                     }
-                    ChainType::Native => {
-                        Err(Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, "Native event search not implemented yet".into()))
-                    }
+                    ChainType::Native => Err(Response::error(
+                        req_id.clone(),
+                        error_codes::INTERNAL_ERROR,
+                        "Native event search not implemented yet".into(),
+                    )),
                 }
-            }).await;
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
@@ -291,46 +395,78 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
         // EVM value transfer using a provided private key
         "transfer_evm" => {
             let res: Result<Response, Response> = (async {
-                let private_key = get_required_arg::<String>(args, "private_key", req_id)?;
-                let chain_id = get_required_arg::<String>(args, "chain_id", req_id)?;
-                let to_address = get_required_arg::<String>(args, "to_address", req_id)?;
-                let amount_wei = get_required_arg::<String>(args, "amount_wei", req_id)?;
+                let private_key = utils::get_required_arg::<String>(args, "private_key", req_id)?;
+                let chain_id = utils::get_required_arg::<String>(args, "chain_id", req_id)?;
+                let to_address = utils::get_required_arg::<String>(args, "to_address", req_id)?;
+                let amount_wei = utils::get_required_arg::<String>(args, "amount_wei", req_id)?;
 
-                let to = Address::from_str(&to_address)
-                    .map_err(|_| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Invalid 'to_address'".into()))?;
-                let value = U256::from_dec_str(&amount_wei)
-                    .map_err(|_| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Invalid 'amount_wei'".into()))?;
+                let to = Address::from_str(&to_address).map_err(|_| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        "Invalid 'to_address'".into(),
+                    )
+                })?;
+                let value = U256::from_dec_str(&amount_wei).map_err(|_| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        "Invalid 'amount_wei'".into(),
+                    )
+                })?;
 
                 let mut tx_request = TransactionRequest::new().to(to).value(value);
                 if let Some(g) = args.get("gas_limit").and_then(|v| v.as_str()) {
-                    tx_request = tx_request.gas(U256::from_dec_str(g).unwrap_or_else(|_| U256::from(0)));
+                    tx_request =
+                        tx_request.gas(U256::from_dec_str(g).unwrap_or_else(|_| U256::from(0)));
                 }
                 if let Some(gp) = args.get("gas_price").and_then(|v| v.as_str()) {
-                    tx_request = tx_request.gas_price(U256::from_dec_str(gp).unwrap_or_else(|_| U256::from(0)));
+                    tx_request = tx_request
+                        .gas_price(U256::from_dec_str(gp).unwrap_or_else(|_| U256::from(0)));
                 }
 
-                let response = state.sei_client
+                let response = state
+                    .sei_client
                     .send_transaction(&chain_id, &private_key, tx_request, &state.nonce_manager)
                     .await
-                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
-                let summary = match serde_json::to_string(&response) { Ok(s) => format!("EVM tx sent: {}", s), Err(_) => "EVM tx sent".to_string() };
-                Ok(Response::success(req_id.clone(), make_texty_result(summary, json!(response))))
-            }).await;
+                    .map_err(|e| {
+                        Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                    })?;
+                let summary = match serde_json::to_string(&response) {
+                    Ok(s) => format!("EVM tx sent: {}", s),
+                    Err(_) => "EVM tx sent".to_string(),
+                };
+                Ok(Response::success(
+                    req_id.clone(),
+                    make_texty_result(summary, json!(response)),
+                ))
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
         // Native SEI bank transfer using a provided Cosmos private key (0x-hex secp256k1)
         "transfer_sei" => {
             let res: Result<Response, Response> = (async {
-                let private_key = get_required_arg::<String>(args, "private_key", req_id)?;
-                let chain_id = get_required_arg::<String>(args, "chain_id", req_id)?;
-                let to_address = get_required_arg::<String>(args, "to_address", req_id)?;
-                let amount_usei = get_required_arg::<String>(args, "amount_usei", req_id)?;
+                let private_key = utils::get_required_arg::<String>(args, "private_key", req_id)?;
+                let chain_id = utils::get_required_arg::<String>(args, "chain_id", req_id)?;
+                let to_address = utils::get_required_arg::<String>(args, "to_address", req_id)?;
+                let amount_usei = utils::get_required_arg::<String>(args, "amount_usei", req_id)?;
 
-                let amount = amount_usei.parse::<u64>()
-                    .map_err(|_| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Invalid 'amount_usei'".into()))?;
-                let rpc_url = state.config.chain_rpc_urls.get(&chain_id)
-                    .ok_or_else(|| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, format!("RPC URL not configured for chain_id '{}'", chain_id)))?;
+                let amount = amount_usei.parse::<u64>().map_err(|_| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        "Invalid 'amount_usei'".into(),
+                    )
+                })?;
+                let rpc_url = state.config.chain_rpc_urls.get(&chain_id).ok_or_else(|| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        format!("RPC URL not configured for chain_id '{}'", chain_id),
+                    )
+                })?;
 
                 let tx_hash = transactions::send_native_transaction_signed(
                     &state.config,
@@ -338,35 +474,65 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                     &private_key,
                     &to_address,
                     amount,
-                ).await.map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                )
+                .await
+                .map_err(|e| {
+                    Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                })?;
                 let payload = json!({ "transaction_hash": tx_hash });
                 let summary = format!("SEI bank tx: {}", tx_hash);
-                Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
-            }).await;
+                Ok(Response::success(
+                    req_id.clone(),
+                    make_texty_result(summary, payload),
+                ))
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
         // EVM ERC-721 transfer
         "transfer_nft_evm" => {
             let res: Result<Response, Response> = (async {
-                let private_key = get_required_arg::<String>(args, "private_key", req_id)?;
-                let chain_id = get_required_arg::<String>(args, "chain_id", req_id)?;
-                let contract_address = get_required_arg::<String>(args, "contract_address", req_id)?;
-                let to_address = get_required_arg::<String>(args, "to_address", req_id)?;
-                let token_id = get_required_arg::<String>(args, "token_id", req_id)?;
+                let private_key = utils::get_required_arg::<String>(args, "private_key", req_id)?;
+                let chain_id = utils::get_required_arg::<String>(args, "chain_id", req_id)?;
+                let contract_address =
+                    utils::get_required_arg::<String>(args, "contract_address", req_id)?;
+                let to_address = utils::get_required_arg::<String>(args, "to_address", req_id)?;
+                let token_id = utils::get_required_arg::<String>(args, "token_id", req_id)?;
 
-                let wallet = LocalWallet::from_str(&private_key)
-                    .map_err(|_| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Invalid 'private_key'".into()))?;
+                let wallet = LocalWallet::from_str(&private_key).map_err(|_| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        "Invalid 'private_key'".into(),
+                    )
+                })?;
                 let from_addr = wallet.address();
-                let to = Address::from_str(&to_address)
-                    .map_err(|_| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Invalid 'to_address'".into()))?;
-                let contract = Address::from_str(&contract_address)
-                    .map_err(|_| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Invalid 'contract_address'".into()))?;
-                let token_u256 = U256::from_dec_str(&token_id)
-                    .map_err(|_| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Invalid 'token_id'".into()))?;
+                let to = Address::from_str(&to_address).map_err(|_| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        "Invalid 'to_address'".into(),
+                    )
+                })?;
+                let contract = Address::from_str(&contract_address).map_err(|_| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        "Invalid 'contract_address'".into(),
+                    )
+                })?;
+                let token_u256 = U256::from_dec_str(&token_id).map_err(|_| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        "Invalid 'token_id'".into(),
+                    )
+                })?;
 
                 // Encode safeTransferFrom(address,address,uint256)
-                let selector = &keccak256("safeTransferFrom(address,address,uint256)".as_bytes())[0..4];
+                let selector =
+                    &keccak256("safeTransferFrom(address,address,uint256)".as_bytes())[0..4];
                 let data_bytes = {
                     let mut encoded = selector.to_vec();
                     let tokens = vec![
@@ -379,99 +545,221 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
                     Bytes::from(encoded)
                 };
 
-                let mut tx_request = TransactionRequest::new().to(contract).data(data_bytes).value(U256::zero());
+                let mut tx_request = TransactionRequest::new()
+                    .to(contract)
+                    .data(data_bytes)
+                    .value(U256::zero());
                 if let Some(g) = args.get("gas_limit").and_then(|v| v.as_str()) {
-                    tx_request = tx_request.gas(U256::from_dec_str(g).unwrap_or_else(|_| U256::from(0)));
+                    tx_request =
+                        tx_request.gas(U256::from_dec_str(g).unwrap_or_else(|_| U256::from(0)));
                 }
                 if let Some(gp) = args.get("gas_price").and_then(|v| v.as_str()) {
-                    tx_request = tx_request.gas_price(U256::from_dec_str(gp).unwrap_or_else(|_| U256::from(0)));
+                    tx_request = tx_request
+                        .gas_price(U256::from_dec_str(gp).unwrap_or_else(|_| U256::from(0)));
                 }
 
-                let response = state.sei_client
+                let response = state
+                    .sei_client
                     .send_transaction(&chain_id, &private_key, tx_request, &state.nonce_manager)
                     .await
-                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                    .map_err(|e| {
+                        Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                    })?;
                 Ok(Response::success(req_id.clone(), json!(response)))
-            }).await;
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
         // --- Secure Wallet Storage Tools ---
-
         "register_wallet" => {
             let res: Result<Response, Response> = (async {
-                let wallet_name = get_required_arg::<String>(args, "wallet_name", req_id)?;
-                let private_key = get_required_arg::<String>(args, "private_key", req_id)?;
-                let master_password = get_required_arg::<String>(args, "master_password", req_id)?;
-                
-                let wallet_info: WalletResponse = wallet::import_wallet(&private_key)
-                    .map_err(|e| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, e.to_string()))?;
+                let wallet_name = utils::get_required_arg::<String>(args, "wallet_name", req_id)?;
+                let private_key = utils::get_required_arg::<String>(args, "private_key", req_id)?;
+                let master_password =
+                    utils::get_required_arg::<String>(args, "master_password", req_id)?;
+
+                let wallet_info: WalletResponse =
+                    wallet::import_wallet(&private_key).map_err(|e| {
+                        Response::error(req_id.clone(), error_codes::INVALID_PARAMS, e.to_string())
+                    })?;
 
                 let mut storage = state.wallet_storage.lock().await;
                 if !storage.verify_master_password(&master_password) {
-                    return Err(Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, "Invalid master password".into()));
+                    return Err(Response::error(
+                        req_id.clone(),
+                        error_codes::INTERNAL_ERROR,
+                        "Invalid master password".into(),
+                    ));
                 }
-                
-                storage.add_wallet(wallet_name.clone(), &private_key, wallet_info.address, &master_password)
-                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
 
-                wallet_storage::save_wallet_storage(&state.wallet_storage_path, &storage)
-                        .map_err(|e| {
-                            error!("Failed to save wallet storage: {}", e);
-                            Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, "Failed to save wallet to disk".into())
-                        })?;
-                
+                storage
+                    .add_wallet(
+                        wallet_name.clone(),
+                        &private_key,
+                        wallet_info.address,
+                        &master_password,
+                    )
+                    .map_err(|e| {
+                        Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                    })?;
+
+                wallet_storage::save_wallet_storage(&state.wallet_storage_path, &storage).map_err(
+                    |e| {
+                        error!("Failed to save wallet storage: {}", e);
+                        Response::error(
+                            req_id.clone(),
+                            error_codes::INTERNAL_ERROR,
+                            "Failed to save wallet to disk".into(),
+                        )
+                    },
+                )?;
+
                 let payload = json!({ "status": "success", "wallet_name": wallet_name });
                 let summary = format!("Registered wallet {}", wallet_name);
-                Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
-            }).await;
+                Ok(Response::success(
+                    req_id.clone(),
+                    make_texty_result(summary, payload),
+                ))
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
         "list_wallets" => {
             let res: Result<Response, Response> = (async {
-                let master_password = get_required_arg::<String>(args, "master_password", req_id)?;
+                let master_password =
+                    utils::get_required_arg::<String>(args, "master_password", req_id)?;
                 let storage = state.wallet_storage.lock().await;
                 if !storage.verify_master_password(&master_password) {
-                    return Err(Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, "Invalid master password".into()));
+                    return Err(Response::error(
+                        req_id.clone(),
+                        error_codes::INTERNAL_ERROR,
+                        "Invalid master password".into(),
+                    ));
                 }
                 let wallets = storage.list_wallets();
                 let count = wallets.len();
                 let payload = json!({ "wallets": wallets });
                 let summary = format!("{} wallet(s)", count);
-                Ok(Response::success(req_id.clone(), make_texty_result(summary, payload)))
-            }).await;
+                Ok(Response::success(
+                    req_id.clone(),
+                    make_texty_result(summary, payload),
+                ))
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
 
         "transfer_from_wallet" => {
             let res: Result<Response, Response> = (async {
-                let wallet_name = get_required_arg::<String>(args, "wallet_name", req_id)?;
-                let chain_id = get_required_arg::<String>(args, "chain_id", req_id)?;
-                let to_address = get_required_arg::<String>(args, "to_address", req_id)?;
-                let amount = get_required_arg::<String>(args, "amount", req_id)?;
-                let master_password = get_required_arg::<String>(args, "master_password", req_id)?;
-                
-                let private_key = { // Scoped lock
+                let wallet_name = utils::get_required_arg::<String>(args, "wallet_name", req_id)?;
+                let chain_id = utils::get_required_arg::<String>(args, "chain_id", req_id)?;
+                let to_address = utils::get_required_arg::<String>(args, "to_address", req_id)?;
+                let amount = utils::get_required_arg::<String>(args, "amount", req_id)?;
+                let master_password =
+                    utils::get_required_arg::<String>(args, "master_password", req_id)?;
+
+                let private_key = {
+                    // Scoped lock
                     let storage = state.wallet_storage.lock().await;
-                    storage.get_decrypted_private_key(&wallet_name, &master_password)
-                        .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?
+                    storage
+                        .get_decrypted_private_key(&wallet_name, &master_password)
+                        .map_err(|e| {
+                            Response::error(
+                                req_id.clone(),
+                                error_codes::INTERNAL_ERROR,
+                                e.to_string(),
+                            )
+                        })?
                 };
-                
-                let to = Address::from_str(&to_address).map_err(|_| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Invalid 'to_address'".into()))?;
-                let value = U256::from_dec_str(&amount).map_err(|_| Response::error(req_id.clone(), error_codes::INVALID_PARAMS, "Invalid 'amount'".into()))?;
+
+                let to = Address::from_str(&to_address).map_err(|_| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        "Invalid 'to_address'".into(),
+                    )
+                })?;
+                let value = U256::from_dec_str(&amount).map_err(|_| {
+                    Response::error(
+                        req_id.clone(),
+                        error_codes::INVALID_PARAMS,
+                        "Invalid 'amount'".into(),
+                    )
+                })?;
 
                 let tx_request = TransactionRequest::new().to(to).value(value);
 
-                let response = state.sei_client.send_transaction(&chain_id, &private_key, tx_request, &state.nonce_manager).await
-                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
-                let summary = match serde_json::to_string(&response) { Ok(s) => format!("Transfer sent: {}", s), Err(_) => "Transfer sent".to_string() };
-                Ok(Response::success(req_id.clone(), make_texty_result(summary, json!(response))))
-            }).await;
+                let response = state
+                    .sei_client
+                    .send_transaction(&chain_id, &private_key, tx_request, &state.nonce_manager)
+                    .await
+                    .map_err(|e| {
+                        Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                    })?;
+                let summary = match serde_json::to_string(&response) {
+                    Ok(s) => format!("Transfer sent: {}", s),
+                    Err(_) => "Transfer sent".to_string(),
+                };
+                Ok(Response::success(
+                    req_id.clone(),
+                    make_texty_result(summary, json!(response)),
+                ))
+            })
+            .await;
             res.unwrap_or_else(|err_resp| err_resp)
         }
-
-        _ => Response::error(req.id, error_codes::METHOD_NOT_FOUND, format!("Tool not found: {}", tool_name)),
+        "get_contract" => {
+            let res: Result<Response, Response> = (async {
+                let address = utils::get_required_arg::<String>(args, "address", req_id)?;
+                let contract = state
+                    .sei_client
+                    .get_contract("sei-evm-testnet", &address)
+                    .await
+                    .map_err(|e| {
+                        Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                    })?;
+                Ok(Response::success(req_id.clone(), json!(contract)))
+            })
+            .await;
+            res.unwrap_or_else(|err_resp| err_resp)
+        }
+        "get_contract_code" => {
+            let res: Result<Response, Response> = (async {
+                let address = utils::get_required_arg::<String>(args, "address", req_id)?;
+                let code = state
+                    .sei_client
+                    .get_contract_code("sei-evm-testnet", &address)
+                    .await
+                    .map_err(|e| {
+                        Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                    })?;
+                Ok(Response::success(req_id.clone(), json!(code)))
+            })
+            .await;
+            res.unwrap_or_else(|err_resp| err_resp)
+        }
+        "get_contract_transactions" => {
+            let res: Result<Response, Response> = (async {
+                let address = utils::get_required_arg::<String>(args, "address", req_id)?;
+                let txs = state
+                    .sei_client
+                    .get_contract_transactions("sei-evm-testnet", &address)
+                    .await
+                    .map_err(|e| {
+                        Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
+                    })?;
+                Ok(Response::success(req_id.clone(), json!(txs)))
+            })
+            .await;
+            res.unwrap_or_else(|err_resp| err_resp)
+        }
+        _ => Response::error(
+            req.id,
+            error_codes::METHOD_NOT_FOUND,
+            format!("Tool not found: {}", tool_name),
+        ),
     }
 }
 
@@ -643,7 +931,29 @@ fn handle_tools_list(req: &Request) -> Response {
                 "required": ["private_key", "chain_id", "contract_address", "to_address", "token_id"],
                 "additionalProperties": false
             }
-        }
+        },
+         { // Add this object
+            "name": "get_contract_code",
+            "description": "Get the code of a smart contract.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "address": {"type": "string", "description": "The address of the smart contract."}
+                },
+                "required": ["address"]
+            }
+        },
+        { // Add this object
+            "name": "get_contract_transactions",
+            "description": "Get the transactions of a smart contract.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "address": {"type": "string", "description": "The address of the smart contract."}
+                },
+                "required": ["address"]
+            }
+        },
     ]);
     Response::success(req.id.clone(), json!({ "tools": tools }))
 }

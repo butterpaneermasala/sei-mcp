@@ -7,6 +7,9 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 // FIX: AppState is now defined in the library root (lib.rs) to be visible to all modules.
+
+// Re-export utils module
+pub mod utils;
 #[derive(Clone)]
 pub struct AppState {
     pub config: config::Config,

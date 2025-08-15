@@ -1,5 +1,6 @@
 // src/blockchain/models.rs
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use thiserror::Error;
 
 // --- Error types for wallet operations ---
@@ -234,4 +235,116 @@ impl ChainType {
             ChainType::Native
         }
     }
+}
+// src/blockchain/models.rs
+
+// ... (existing structs)
+
+// --- Contract Models ---
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Contract {
+    pub hash: String,
+    pub balance: String,
+    pub name: String,
+    pub creator_address: Option<String>,
+    pub tx_hash: Option<String>,
+    pub compiler_version: String,
+    pub evm_version: String,
+    pub optimization: bool,
+    pub optimization_runs: String,
+    pub code_checked_at: Option<String>,
+    pub pointer_type: String,
+    pub pointee_address: String,
+    pub pointer_address: String,
+    pub is_base_asset: bool,
+    pub is_pointer: bool,
+    pub proxy_type: Option<String>,
+    pub implementations: Option<Vec<String>>,
+    pub partially_verified: bool,
+    pub fully_verified: bool,
+    pub verified: bool,
+    pub token: Option<TokenInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenInfo {
+    #[serde(rename = "type")]
+    pub token_type: String,
+    pub token: TokenDetails,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenDetails {
+    pub hash: String,
+    pub name: String,
+    pub symbol: String,
+    pub decimals: String,
+    pub total_supply: String,
+    pub id: String,
+    pub address: String,
+    pub pointer_type: String,
+    pub pointee_address: String,
+    pub pointer_address: String,
+    pub is_base_asset: bool,
+    pub is_pointer: bool,
+    pub holders: u64,
+    pub transfers: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ContractCode {
+    pub abi: Vec<Value>,
+    pub compiler_settings: Value,
+    pub external_libraries: Vec<Value>,
+    pub runtime_code: String,
+    pub creation_code: String,
+    pub sources: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ContractTransactionsResponse {
+    pub items: Vec<ContractTransaction>,
+    pub pagination: Pagination,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ContractTransaction {
+    pub hash: String,
+    pub timestamp: String,
+    pub value: String,
+    pub fee: String,
+    #[serde(rename = "type")]
+    pub tx_type: u64,
+    pub action_type: String,
+    pub gas_price: String,
+    pub gas_limit: String,
+    pub max_fee_per_gas: String,
+    pub max_priority_fee_per_gas: String,
+    pub priority_fee: String,
+    pub burnt_fees: String,
+    pub gas_used_by_transaction: String,
+    pub nonce: u64,
+    pub status: bool,
+    pub failure_reason: Option<String>,
+    pub height: u64,
+    pub to: String,
+    pub from: String,
+    pub data: String,
+    pub method: String,
+    pub block_confirmation: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Pagination {
+    pub pages: u64,
+    pub rows: u64,
+    pub curr_page: u64,
+    pub next_page: Option<u64>,
 }

@@ -1,35 +1,41 @@
 // src/main.rs
 
+use axum::{
+    extract::{ConnectInfo, State},
+    middleware,
+};
 use axum::{routing::get, routing::post, Router};
-use axum::{middleware, extract::{ConnectInfo, State}};
+use sei_mcp_server_rs::api::wallet::{create_wallet_handler, import_wallet_handler};
 use sei_mcp_server_rs::AppState;
 use sei_mcp_server_rs::{
     api::{
         balance::get_balance_handler,
+        contract::{
+            get_contract_transactions_handler,
+        },
         faucet::request_faucet,
         health::health_handler,
         history::get_transaction_history_handler,
         tx::send_transaction_handler,
     },
+    blockchain::client::SeiClient,
+    blockchain::nonce_manager::NonceManager,
     config::Config,
+    mcp::wallet_storage::{get_wallet_storage_path, WalletStorage},
     mcp::{
         handler::handle_mcp_request,
         protocol::{error_codes, Request, Response},
     },
-    blockchain::client::SeiClient,
-    blockchain::nonce_manager::NonceManager,
-    mcp::wallet_storage::{WalletStorage, get_wallet_storage_path},
 };
-use sei_mcp_server_rs::api::wallet::{create_wallet_handler, import_wallet_handler};
+use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tower::limit::ConcurrencyLimitLayer;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 // removed HandleErrorLayer-based mapping; ConcurrencyLimit is sufficient for now
 use axum::response::IntoResponse;
 use tracing::{debug, error, info};
@@ -48,7 +54,11 @@ async fn run_http_server(state: AppState) {
 
     impl RateLimiter {
         fn new(window: Duration, max: usize) -> Self {
-            Self { inner: Arc::new(Mutex::new(HashMap::new())), window, max }
+            Self {
+                inner: Arc::new(Mutex::new(HashMap::new())),
+                window,
+                max,
+            }
         }
     }
 
@@ -70,7 +80,11 @@ async fn run_http_server(state: AppState) {
             let cutoff = now - limiter.window;
             entry.retain(|t| *t >= cutoff);
             if entry.len() >= limiter.max {
-                return (axum::http::StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded").into_response();
+                return (
+                    axum::http::StatusCode::TOO_MANY_REQUESTS,
+                    "Rate limit exceeded",
+                )
+                    .into_response();
             }
             entry.push(now);
         }
@@ -87,23 +101,35 @@ async fn run_http_server(state: AppState) {
         Duration::from_secs(state.config.faucet_rate_window_secs),
         state.config.faucet_rate_max,
     );
-
     let app = Router::new()
         .route("/api/health", get(health_handler))
         .route("/api/wallet/create", post(create_wallet_handler))
         .route("/api/wallet/import", post(import_wallet_handler))
         .route("/api/balance/:chain_id/:address", get(get_balance_handler))
-        .route("/api/history/:chain_id/:address", get(get_transaction_history_handler))
+        .route(
+            "/api/history/:chain_id/:address",
+            get(get_transaction_history_handler),
+        )
         // Removed estimate_fees and other handlers for brevity, they would follow the same pattern.
         .route(
             "/api/faucet/request",
-            post(request_faucet).route_layer(middleware::from_fn_with_state(faucet_limiter.clone(), rate_limit_middleware)),
+            post(request_faucet).route_layer(middleware::from_fn_with_state(
+                faucet_limiter.clone(),
+                rate_limit_middleware,
+            )),
         )
         .route(
             "/api/tx/send",
-            post(send_transaction_handler).route_layer(middleware::from_fn_with_state(tx_limiter.clone(), rate_limit_middleware)),
+            post(send_transaction_handler).route_layer(middleware::from_fn_with_state(
+                tx_limiter.clone(),
+                rate_limit_middleware,
+            )),
         )
-        .with_state(state.clone()) // Use the shared state
+        .route(
+            "/contract/:address/transactions",
+            get(get_contract_transactions_handler),
+        )
+        .with_state(state.clone())
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
         // Simple protection: limit concurrent requests
@@ -112,19 +138,24 @@ async fn run_http_server(state: AppState) {
     let addr = SocketAddr::from(([127, 0, 0, 1], state.config.port));
     info!("🚀 HTTP Server listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await.unwrap();
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 // --- MCP Server Logic ---
 async fn run_mcp_server(state: AppState) {
     info!("🚀 Starting MCP server on stdin/stdout...");
-    
+
     let mut stdin = io::BufReader::new(io::stdin());
     let mut stdout = io::stdout();
 
     loop {
         let mut line = String::new();
-        
+
         match stdin.read_line(&mut line).await {
             Ok(0) => {
                 info!("EOF received, shutting down MCP server");
@@ -135,9 +166,9 @@ async fn run_mcp_server(state: AppState) {
                 if line.is_empty() {
                     continue;
                 }
-                
+
                 debug!("Received: {}", line);
-                
+
                 let response = match serde_json::from_str::<Request>(line) {
                     Ok(request) => {
                         // FIX: Pass shared state to the handler.
@@ -156,7 +187,10 @@ async fn run_mcp_server(state: AppState) {
                 if let Some(response) = response {
                     if let Ok(response_json) = serde_json::to_string(&response) {
                         debug!("Sending: {}", response_json);
-                        if let Err(e) = stdout.write_all(format!("{}\n", response_json).as_bytes()).await {
+                        if let Err(e) = stdout
+                            .write_all(format!("{}\n", response_json).as_bytes())
+                            .await
+                        {
                             error!("Failed to write response: {}", e);
                             break;
                         }
@@ -169,7 +203,7 @@ async fn run_mcp_server(state: AppState) {
             }
         }
     }
-    
+
     info!("MCP server shutting down");
 }
 
@@ -177,7 +211,10 @@ async fn run_mcp_server(state: AppState) {
 async fn main() {
     // Initialize tracing
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "sei_mcp_server_rs=debug,tower_http=debug".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "sei_mcp_server_rs=debug,tower_http=debug".into()),
+        )
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
 
@@ -202,7 +239,7 @@ async fn main() {
             return;
         }
     };
-    
+
     // Create empty wallet storage - will be initialized when user first registers a wallet
     let storage = WalletStorage::default();
 

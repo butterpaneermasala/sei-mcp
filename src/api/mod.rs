@@ -1,4 +1,5 @@
 pub mod balance;
+pub mod contract;
 pub mod event;
 pub mod faucet;
 pub mod fees;
