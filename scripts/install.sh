@@ -86,7 +86,10 @@ if ! command -v "$INSTALL_DIR/${BIN_NAME}" >/dev/null 2>&1; then
   echo "Example: export PATH=\"$INSTALL_DIR:\$PATH\"" >&2
 fi
 
-"$INSTALL_DIR/${BIN_NAME}" --version || true
+# Note: We do not execute the binary here because it may require environment
+# variables (e.g., CHAIN_RPC_URLS) at startup. Running it without those can
+# cause a confusing error during installation. Use your MCP client config to
+# set env and run the server.
 
 echo
 echo "Installed ${BIN_NAME} to ${INSTALL_DIR}."
