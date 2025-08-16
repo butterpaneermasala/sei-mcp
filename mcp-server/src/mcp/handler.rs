@@ -129,7 +129,8 @@ pub async fn handle_mcp_request(req: Request, state: AppState) -> Option<Respons
         // Convenience aliases to support direct method calls from CLI
         // They are rewritten into tools/call internally to reuse the same logic
         "get_balance" | "request_faucet" | "transfer_evm" | "transfer_sei" | "transfer_nft_evm"
-        | "search_events" | "get_contract" | "get_contract_code" | "get_contract_transactions" => {
+        | "search_events" | "get_contract" | "get_contract_code" | "get_contract_transactions"
+        | "redirect_to_seidocs" | "get_chain_info" | "get_transaction_info" | "get_transaction_history" | "get_nft_metadata" => {
             let name = req.method.clone();
             let wrapped = Request {
                 jsonrpc: req.jsonrpc.clone(),
@@ -183,6 +184,170 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
     // FIX: All tool logic is now wrapped in an async block for clean error handling
     // and receives the shared application state.
     match tool_name {
+        "redirect_to_seidocs" => {
+            // Return a simple payload with the docs URL and a text content for MCP clients
+            let url = crate::blockchain::services::docs::get_sei_docs_url();
+            // Best-effort: on Linux, try opening the default browser via xdg-open
+            #[cfg(target_os = "linux")]
+            {
+                match std::process::Command::new("xdg-open").arg(url).spawn() {
+                    Ok(_) => {
+                        // Include a link content item for clients that support it
+                        let payload = json!({
+                            "url": url,
+                            "opened": true,
+                            "content": [
+                                { "type": "text", "text": "Opened Sei documentation in your browser" },
+                                { "type": "link", "text": "Sei Docs", "url": url }
+                            ]
+                        });
+                        return Response::success(req_id.clone(), payload);
+                    }
+                    Err(_e) => {
+                        // Ignore and continue to return the link-only payload below
+                    }
+                }
+            }
+            let payload = json!({ "url": url });
+            let summary = "Open Sei documentation".to_string();
+            // Some MCP clients don't support a dedicated 'link' content item; keep it text-only
+            Response::success(
+                req_id.clone(),
+                json!({
+                    "url": url,
+                    "content": [ { "type": "text", "text": format!("{}: {}", summary, url) } ]
+                })
+            )
+        }
+        ,
+        // --- SeiStream read-only tools ---
+        "get_chain_info" => {
+            let res: Result<Response, Response> = (async {
+                let client = Client::new();
+                let v = crate::blockchain::services::seistream::get_chain_info(&client)
+                    .await
+                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                // Provide both human-friendly text content and raw JSON for clients to parse
+                let latest = v.get("latestBlock").and_then(|b| b.get("height")).and_then(|h| h.as_u64());
+                let network = v.get("network").and_then(|n| n.as_str()).unwrap_or("unknown");
+                let summary = if let Some(h) = latest { format!("Chain info — {} (height {})", network, h) } else { format!("Chain info — {}", network) };
+                Ok(Response::success(
+                    req_id.clone(),
+                    json!({
+                        // flatten key fields for clients that render top-level data
+                        "network": v.get("network"),
+                        "latestBlock": v.get("latestBlock"),
+                        "validators": v.get("validators"),
+                        "window": v.get("window"),
+                        // full payload for programmatic consumers
+                        "data": v,
+                        // human summary
+                        "content": [ { "type": "text", "text": summary } ]
+                    }),
+                ))
+            })
+            .await;
+            match res { Ok(r) => r, Err(e) => e }
+        }
+        "get_transaction_info" => {
+            let res: Result<Response, Response> = (async {
+                let hash = utils::get_required_arg::<String>(args, "hash", req_id)?;
+                let client = Client::new();
+                let v = crate::blockchain::services::seistream::get_transaction_info(&client, &hash)
+                    .await
+                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                let from = v.get("from").and_then(|s| s.as_str()).unwrap_or("");
+                let to = v.get("to").and_then(|s| s.as_str()).unwrap_or("");
+                let summary = if !status.is_empty() {
+                    format!("Tx {} — {} ({} -> {})", &hash, status, from, to)
+                } else {
+                    format!("Tx {}", &hash)
+                };
+                Ok(Response::success(
+                    req_id.clone(),
+                    json!({
+                        // expose common tx fields at top-level when present
+                        "hash": v.get("hash").cloned().unwrap_or_else(|| json!(hash)),
+                        "from": v.get("from"),
+                        "to": v.get("to"),
+                        "status": v.get("status"),
+                        "blockNumber": v.get("blockNumber"),
+                        // full payload
+                        "data": v,
+                        // human summary
+                        "content": [ { "type": "text", "text": summary } ]
+                    })
+                ))
+            })
+            .await;
+            match res { Ok(r) => r, Err(e) => e }
+        }
+        "get_transaction_history" => {
+            let res: Result<Response, Response> = (async {
+                let address = utils::get_required_arg::<String>(args, "address", req_id)?;
+                let page = args.get("page").and_then(|v| v.as_u64());
+                let client = Client::new();
+                let v = crate::blockchain::services::seistream::get_transaction_history(&client, &address, page)
+                    .await
+                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                let count = v.get("items").and_then(|i| i.as_array()).map(|a| a.len()).unwrap_or(0);
+                let summary = match page {
+                    Some(p) => format!("History for {} — {} item(s) on page {}", &address, count, p),
+                    None => format!("History for {} — {} item(s)", &address, count),
+                };
+                Ok(Response::success(
+                    req_id.clone(),
+                    json!({
+                        "data": v,
+                        "content": [ { "type": "text", "text": summary } ]
+                    })
+                ))
+            })
+            .await;
+            match res { Ok(r) => r, Err(e) => e }
+        }
+        "get_nft_metadata" => {
+            let res: Result<Response, Response> = (async {
+                // ERC-721 items for a contract
+                let contract = utils::get_required_arg::<String>(args, "contract_address", req_id)?;
+                let page = args.get("page").and_then(|v| v.as_u64());
+                let client = Client::new();
+                let v = crate::blockchain::services::seistream::get_nft_metadata_erc721_items(&client, &contract, page)
+                    .await
+                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                let count = v.get("items").and_then(|i| i.as_array()).map(|a| a.len()).unwrap_or(0);
+                let summary = match page {
+                    Some(p) => format!("ERC-721 items for {} — {} item(s) on page {}", &contract, count, p),
+                    None => format!("ERC-721 items for {} — {} item(s)", &contract, count),
+                };
+                // Optionally include the first item inline as text preview for Claude UX
+                let preview = v.get("items").and_then(|i| i.as_array()).and_then(|a| a.get(0)).cloned();
+                let mut content = vec![ json!({ "type": "text", "text": summary }) ];
+                if let Some(first) = preview {
+                    if let Ok(pretty) = serde_json::to_string_pretty(&first) {
+                        content.push(json!({ "type": "text", "text": format!("Preview (first item):\n{}", pretty) }));
+                    }
+                }
+                Ok(Response::success(
+                    req_id.clone(),
+                    json!({
+                        // top-level helpful fields for clients
+                        "contract_address": contract,
+                        "page": page,
+                        "count": count,
+                        // first item preview also as structured field
+                        "preview": v.get("items").and_then(|i| i.as_array()).and_then(|a| a.get(0)).cloned(),
+                        // full payload
+                        "data": v,
+                        // human summary and preview text
+                        "content": content
+                    })
+                ))
+            })
+            .await;
+            match res { Ok(r) => r, Err(e) => e }
+        }
         "discord_post_message" => {
             let res: Result<Response, Response> = (async {
                 let message = utils::get_required_arg::<String>(args, "message", req_id)?;
@@ -893,6 +1058,11 @@ fn handle_initialize(req: &Request) -> Response {
 fn handle_tools_list(req: &Request) -> Response {
     let tools = json!([
         {
+            "name": "redirect_to_seidocs",
+            "description": "Return the Sei documentation URL (https://docs.sei.io/).",
+            "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false }
+        },
+        {
             "name": "get_balance",
             "description": "Get the EVM balance of an address on a specific Sei chain.",
             "inputSchema": {
@@ -1072,7 +1242,7 @@ fn handle_tools_list(req: &Request) -> Response {
                 "additionalProperties": false
             }
         },
-        { // Add this object
+        { 
             "name": "get_contract_transactions",
             "description": "Get the transactions of a smart contract.",
             "inputSchema": {
@@ -1081,6 +1251,47 @@ fn handle_tools_list(req: &Request) -> Response {
                     "address": {"type": "string", "description": "The address of the smart contract."}
                 },
                 "required": ["address"]
+            }
+        },
+        {
+            "name": "get_chain_info",
+            "description": "Get general chain info from SeiStream (network, latest block, validators, etc).",
+            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}
+        },
+        {
+            "name": "get_transaction_info",
+            "description": "Get transaction info by EVM hash from SeiStream.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"hash": {"type": "string"}},
+                "required": ["hash"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "get_transaction_history",
+            "description": "Get transaction history for an EVM address from SeiStream.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "address": {"type": "string"},
+                    "page": {"type": "number", "description": "Optional page number"}
+                },
+                "required": ["address"],
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "get_nft_metadata",
+            "description": "Get ERC-721 NFT metadata items for a contract from SeiStream.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "contract_address": {"type": "string"},
+                    "page": {"type": "number", "description": "Optional page number"}
+                },
+                "required": ["contract_address"],
+                "additionalProperties": false
             }
         },
     ]);

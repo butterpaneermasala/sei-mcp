@@ -7,3 +7,5 @@ pub mod history;
 pub mod transactions;
 pub mod wallet;
 pub mod discord;
+pub mod docs;
+pub mod seistream;

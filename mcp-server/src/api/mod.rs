@@ -9,3 +9,5 @@ pub mod transfer;
 pub mod wallet;
 pub mod tx;
 pub mod discord;
+pub mod docs;
+pub mod seistream;

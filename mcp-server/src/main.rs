@@ -12,6 +12,13 @@ use sei_mcp_server_rs::{
         tx::send_transaction_handler,
         wallet::{create_wallet_handler, import_wallet_handler},
         discord::post_discord_handler,
+        docs::redirect_to_seidocs_handler,
+        seistream::{
+            get_chain_info_handler,
+            get_transaction_info_handler,
+            get_transaction_history_handler as sei_get_transaction_history_handler,
+            get_nft_metadata_items_handler,
+        },
     },
     blockchain::client::SeiClient,
     blockchain::nonce_manager::NonceManager,
@@ -56,8 +63,21 @@ async fn run_http_server(state: AppState) {
         )
         // Discord integration route
         .route("/api/discord/post", post(post_discord_handler))
+        // Redirect to Sei docs
+        .route("/redirect/seidocs", get(redirect_to_seidocs_handler))
         .route("/api/faucet/request", post(request_faucet))
         .route("/api/tx/send", post(send_transaction_handler))
+        // SeiStream mirror endpoints
+        .route("/api/chain/network", get(get_chain_info_handler))
+        .route("/api/transactions/evm/:hash", get(get_transaction_info_handler))
+        .route(
+            "/api/accounts/evm/:address/transactions",
+            get(sei_get_transaction_history_handler),
+        )
+        .route(
+            "/api/tokens/evm/erc721/:address/items",
+            get(get_nft_metadata_items_handler),
+        )
         .with_state(state.clone()) // Use the shared state
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
