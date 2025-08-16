@@ -1,11 +1,11 @@
 {
   "mcpServers": {
     "sei-mcp-release": {
-      "command": "/home/satya/hackathons/seii/sei-mcp-server-rs/mcp-server/target/release/sei-mcp-server-rs",
+      "command": "/home/sahilkaushik/study_material/blockchain/sei-mcp/mcp-server/target/release/sei-mcp-server-rs",
       "args": [
         "--mcp"
       ],
-      "cwd": "/home/satya/hackathons/seii/sei-mcp-server-rs/mcp-server",
+      "cwd": "/home/sahilkaushik/study_material/blockchain/sei-mcp/mcp-server",
       "env": {
         "CHAIN_RPC_URLS": "{\"sei-evm-testnet\":\"https://evm-rpc-testnet.sei-apis.com\",\"atlantic-2\":\"https://rpc-testnet.sei-apis.com\",\"sei-evm-mainnet\":\"https://evm-rpc.sei-apis.com\",\"pacific-1\":\"https://sei-rpc.polkachu.com\"}",
         "FAUCET_API_URL": "https://sei-mcp.onrender.com",

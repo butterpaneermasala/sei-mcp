@@ -19,6 +19,10 @@ pub struct Config {
     pub native_fee_amount: u64,
     pub native_chain_id: String,
     pub native_bech32_hrp: String,
+    // Optional Discord integration
+    pub discord_webhook_url: Option<String>,
+    pub discord_bot_token: Option<String>,
+    pub discord_channel_id: Option<String>,
 }
 
 impl Config {
@@ -60,6 +64,10 @@ impl Config {
                 .context("NATIVE_FEE_AMOUNT must be a valid number")?,
             native_chain_id: env::var("NATIVE_CHAIN_ID").unwrap_or_else(|_| "atlantic-2".to_string()),
             native_bech32_hrp: env::var("NATIVE_BECH32_HRP").unwrap_or_else(|_| "sei".to_string()),
+            // Discord integration (all optional)
+            discord_webhook_url: env::var("DISCORD_WEBHOOK_URL").ok(),
+            discord_bot_token: env::var("DISCORD_BOT_TOKEN").ok(),
+            discord_channel_id: env::var("DISCORD_CHANNEL_ID").ok(),
         })
     }
 }

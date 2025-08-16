@@ -8,8 +8,10 @@ use sei_mcp_server_rs::{
         faucet::request_faucet,
         health::health_handler,
         history::get_transaction_history_handler,
+        contract::{get_contract_handler, get_contract_code_handler, get_contract_transactions_handler},
         tx::send_transaction_handler,
         wallet::{create_wallet_handler, import_wallet_handler},
+        discord::post_discord_handler,
     },
     blockchain::client::SeiClient,
     blockchain::nonce_manager::NonceManager,
@@ -42,6 +44,18 @@ async fn run_http_server(state: AppState) {
             "/api/history/:chain_id/:address",
             get(get_transaction_history_handler),
         )
+        // Contract inspection routes
+        .route("/contract/:chain_id/:address", get(get_contract_handler))
+        .route(
+            "/contract/:chain_id/:address/code",
+            get(get_contract_code_handler),
+        )
+        .route(
+            "/contract/:chain_id/:address/transactions",
+            get(get_contract_transactions_handler),
+        )
+        // Discord integration route
+        .route("/api/discord/post", post(post_discord_handler))
         .route("/api/faucet/request", post(request_faucet))
         .route("/api/tx/send", post(send_transaction_handler))
         .with_state(state.clone()) // Use the shared state

@@ -3,7 +3,7 @@
 use crate::blockchain::{
     models::*,
     nonce_manager::NonceManager,
-    services::{balance, fees, history, transactions, wallet, event},
+    services::{balance, fees, history, transactions, wallet, contract},
 };
 use anyhow::{anyhow, Result};
 use ethers_core::types::TransactionRequest;
@@ -104,16 +104,16 @@ impl SeiClient {
         .await
     }
 
-    // --- Contract inspection stubs (not implemented) ---
-    pub async fn get_contract(&self, _chain_id: &str, _address: &str) -> Result<Value> {
-        Err(anyhow!("get_contract not implemented"))
+    // --- Contract inspection ---
+    pub async fn get_contract(&self, chain_id: &str, address: &str) -> Result<Value> {
+        contract::get_contract(&self.client, chain_id, address).await
     }
 
-    pub async fn get_contract_code(&self, _chain_id: &str, _address: &str) -> Result<Value> {
-        Err(anyhow!("get_contract_code not implemented"))
+    pub async fn get_contract_code(&self, chain_id: &str, address: &str) -> Result<Value> {
+        contract::get_contract_code(&self.client, chain_id, address).await
     }
 
-    pub async fn get_contract_transactions(&self, _chain_id: &str, _address: &str) -> Result<Value> {
-        Err(anyhow!("get_contract_transactions not implemented"))
+    pub async fn get_contract_transactions(&self, chain_id: &str, address: &str) -> Result<Value> {
+        contract::get_contract_transactions(&self.client, chain_id, address).await
     }
 }

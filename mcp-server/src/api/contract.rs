@@ -12,6 +12,7 @@ use tracing::error;
 
 #[derive(Deserialize)]
 pub struct ContractPath {
+    pub chain_id: String,
     pub address: String,
 }
 
@@ -21,7 +22,7 @@ pub async fn get_contract_handler(
 ) -> impl IntoResponse {
     match state
         .sei_client
-        .get_contract("sei-evm-testnet", &params.address)
+        .get_contract(&params.chain_id, &params.address)
         .await
     {
         Ok(contract) => (StatusCode::OK, Json(contract)).into_response(),
@@ -38,7 +39,7 @@ pub async fn get_contract_code_handler(
 ) -> impl IntoResponse {
     match state
         .sei_client
-        .get_contract_code("sei-evm-testnet", &params.address)
+        .get_contract_code(&params.chain_id, &params.address)
         .await
     {
         Ok(code) => (StatusCode::OK, Json(code)).into_response(),
@@ -55,7 +56,7 @@ pub async fn get_contract_transactions_handler(
 ) -> impl IntoResponse {
     match state
         .sei_client
-        .get_contract_transactions("sei-evm-testnet", &params.address)
+        .get_contract_transactions(&params.chain_id, &params.address)
         .await
     {
         Ok(txs) => (StatusCode::OK, Json(txs)).into_response(),

@@ -17,8 +17,7 @@ use ethers_core::types::{Address, Bytes, TransactionRequest, U256};
 use ethers_core::utils::keccak256;
 use ethers_signers::{LocalWallet, Signer};
 use reqwest::Client;
-use serde::de::DeserializeOwned;
-use serde_json::{from_value, json, Value};
+use serde_json::{json, Value};
 use std::str::FromStr;
 use tracing::{error, info};
 
@@ -64,6 +63,38 @@ pub fn normalize_chain_id(input: &str) -> String {
 
 // Use the get_required_arg from utils module
 
+// Heuristic: infer EVM chain from natural language in args if chain_id is absent.
+// Looks for words like "mainnet" or "testnet" in common text-bearing fields.
+fn infer_evm_chain_from_args(args: &Value) -> Option<String> {
+    // common fields where NL may be present
+    let candidates = [
+        "query",
+        "text",
+        "prompt",
+        "instruction",
+        "message",
+        "description",
+    ];
+    let mut blob = String::new();
+    for key in candidates.iter() {
+        if let Some(s) = args.get(*key).and_then(|v| v.as_str()) {
+            blob.push_str(" ");
+            blob.push_str(s);
+        }
+    }
+    if blob.is_empty() {
+        return None;
+    }
+    let b = blob.to_lowercase();
+    if b.contains("mainnet") {
+        return Some("sei-evm-mainnet".to_string());
+    }
+    if b.contains("testnet") {
+        return Some("sei-evm-testnet".to_string());
+    }
+    None
+}
+
 // Helper: produce a result Value that always contains a text content array
 // and preserves structured data for JSON-friendly clients.
 fn make_texty_result(text: String, payload: Value) -> Value {
@@ -98,7 +129,7 @@ pub async fn handle_mcp_request(req: Request, state: AppState) -> Option<Respons
         // Convenience aliases to support direct method calls from CLI
         // They are rewritten into tools/call internally to reuse the same logic
         "get_balance" | "request_faucet" | "transfer_evm" | "transfer_sei" | "transfer_nft_evm"
-        | "search_events" => {
+        | "search_events" | "get_contract" | "get_contract_code" | "get_contract_transactions" => {
             let name = req.method.clone();
             let wrapped = Request {
                 jsonrpc: req.jsonrpc.clone(),
@@ -152,6 +183,26 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
     // FIX: All tool logic is now wrapped in an async block for clean error handling
     // and receives the shared application state.
     match tool_name {
+        "discord_post_message" => {
+            let res: Result<Response, Response> = (async {
+                let message = utils::get_required_arg::<String>(args, "message", req_id)?;
+                let username = args.get("username").and_then(|v| v.as_str());
+                let res = crate::api::discord::post_discord_message(&state, &message, username)
+                    .await
+                    .map_err(|e| Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string()))?;
+                let summary = if let Some(u) = username {
+                    format!("Posted to Discord as '{}'", u)
+                } else {
+                    "Posted to Discord".to_string()
+                };
+                Ok(Response::success(
+                    req_id.clone(),
+                    make_texty_result(summary, res),
+                ))
+            })
+            .await;
+            res.unwrap_or_else(|err_resp| err_resp)
+        }
         "get_balance" => {
             let res: Result<Response, Response> = (async {
                 let address = utils::get_required_arg::<String>(args, "address", req_id)?;
@@ -713,14 +764,32 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
         "get_contract" => {
             let res: Result<Response, Response> = (async {
                 let address = utils::get_required_arg::<String>(args, "address", req_id)?;
+                // Prefer explicit chain_id, else infer from NL, default to testnet
+                let mut chain = args
+                    .get("chain_id")
+                    .and_then(|v| v.as_str())
+                    .map(normalize_chain_id);
+                if chain.is_none() {
+                    chain = infer_evm_chain_from_args(args);
+                }
+                let chain_id = chain.unwrap_or_else(|| "sei-evm-testnet".to_string());
                 let contract = state
                     .sei_client
-                    .get_contract("sei-evm-testnet", &address)
+                    .get_contract(&chain_id, &address)
                     .await
                     .map_err(|e| {
                         Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
                     })?;
-                Ok(Response::success(req_id.clone(), json!(contract)))
+                let summary = format!("Contract {} on {}", address, chain_id);
+                let pretty = serde_json::to_string_pretty(&contract).unwrap_or_else(|_| contract.to_string());
+                Ok(Response::success(
+                    req_id.clone(),
+                    json!({
+                        "content": [
+                            { "type": "text", "text": format!("{}\n\n{}", summary, pretty) }
+                        ]
+                    })
+                ))
             })
             .await;
             res.unwrap_or_else(|err_resp| err_resp)
@@ -728,14 +797,31 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
         "get_contract_code" => {
             let res: Result<Response, Response> = (async {
                 let address = utils::get_required_arg::<String>(args, "address", req_id)?;
+                let mut chain = args
+                    .get("chain_id")
+                    .and_then(|v| v.as_str())
+                    .map(normalize_chain_id);
+                if chain.is_none() {
+                    chain = infer_evm_chain_from_args(args);
+                }
+                let chain_id = chain.unwrap_or_else(|| "sei-evm-testnet".to_string());
                 let code = state
                     .sei_client
-                    .get_contract_code("sei-evm-testnet", &address)
+                    .get_contract_code(&chain_id, &address)
                     .await
                     .map_err(|e| {
                         Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
                     })?;
-                Ok(Response::success(req_id.clone(), json!(code)))
+                let summary = format!("Contract code for {} on {}", address, chain_id);
+                let pretty = serde_json::to_string_pretty(&code).unwrap_or_else(|_| code.to_string());
+                Ok(Response::success(
+                    req_id.clone(),
+                    json!({
+                        "content": [
+                            { "type": "text", "text": format!("{}\n\n{}", summary, pretty) }
+                        ]
+                    })
+                ))
             })
             .await;
             res.unwrap_or_else(|err_resp| err_resp)
@@ -743,14 +829,32 @@ async fn handle_tool_call(req: Request, state: AppState) -> Response {
         "get_contract_transactions" => {
             let res: Result<Response, Response> = (async {
                 let address = utils::get_required_arg::<String>(args, "address", req_id)?;
+                let mut chain = args
+                    .get("chain_id")
+                    .and_then(|v| v.as_str())
+                    .map(normalize_chain_id);
+                if chain.is_none() {
+                    chain = infer_evm_chain_from_args(args);
+                }
+                let chain_id = chain.unwrap_or_else(|| "sei-evm-testnet".to_string());
                 let txs = state
                     .sei_client
-                    .get_contract_transactions("sei-evm-testnet", &address)
+                    .get_contract_transactions(&chain_id, &address)
                     .await
                     .map_err(|e| {
                         Response::error(req_id.clone(), error_codes::INTERNAL_ERROR, e.to_string())
                     })?;
-                Ok(Response::success(req_id.clone(), json!(txs)))
+                let count = txs.get("items").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+                let summary = format!("{} tx(s) for {} on {}", count, address, chain_id);
+                let pretty = serde_json::to_string_pretty(&txs).unwrap_or_else(|_| txs.to_string());
+                Ok(Response::success(
+                    req_id.clone(),
+                    json!({
+                        "content": [
+                            { "type": "text", "text": format!("{}\n\n{}", summary, pretty) }
+                        ]
+                    })
+                ))
             })
             .await;
             res.unwrap_or_else(|err_resp| err_resp)
@@ -932,7 +1036,19 @@ fn handle_tools_list(req: &Request) -> Response {
                 "additionalProperties": false
             }
         },
-         { // Add this object
+         {
+            "name": "get_contract",
+            "description": "Get general details for a smart contract.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "address": {"type": "string", "description": "The address of the smart contract."},
+                    "chain_id": {"type": "string", "description": "Optional chain id (e.g., 'sei-evm-mainnet' or 'sei-evm-testnet')."}
+                },
+                "required": ["address"]
+            }
+        },
+        {
             "name": "get_contract_code",
             "description": "Get the code of a smart contract.",
             "inputSchema": {
@@ -941,6 +1057,19 @@ fn handle_tools_list(req: &Request) -> Response {
                     "address": {"type": "string", "description": "The address of the smart contract."}
                 },
                 "required": ["address"]
+            }
+        },
+        {
+            "name": "discord_post_message",
+            "description": "Post a message to Discord via webhook or bot token (configured in server env).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": "Text to post. Code or natural language supported."},
+                    "username": {"type": "string", "description": "Optional display username (webhook mode)."}
+                },
+                "required": ["message"],
+                "additionalProperties": false
             }
         },
         { // Add this object
