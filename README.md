@@ -1,1 +1,1 @@
-curl -fsSL https://raw.githubusercontent.com/butterpaneermasala/sei-mcp/main/scripts/install.sh | GITHUB_REPO=butterpaneermasala/sei-mcp bash
+this repo is now maintained at https://github.com/0xnvoid/sei-mcp
